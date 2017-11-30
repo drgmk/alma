@@ -1,5 +1,4 @@
 import numpy as np
-import los_funcs
 
 class Dens(object):
     '''Define some density functions.
@@ -201,6 +200,8 @@ class Image(object):
         self.rmax_arcsec = rmax_arcsec
         self.rmax = int(rmax_arcsec / self.arcsec_pix)
         self.crop_size = self.rmax * 2
+        self.cc = (slice(self.ny2-self.rmax,self.ny2+self.rmax),
+                   slice(self.nx2-self.rmax,self.nx2+self.rmax))
         a = np.arange(self.crop_size) - (self.crop_size-1)/2.
         self.zarray, self.yarray = np.meshgrid(a, a)
 
