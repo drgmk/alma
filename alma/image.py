@@ -41,6 +41,7 @@ class Dens(object):
         self.dens = models[model]['func']
         self.params = models[model]['params']
 
+
     # Gaussian torus and parameters
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
     def gauss_3d(self, r, az, el, p):
@@ -99,8 +100,32 @@ class Dens(object):
 class Emit(object):
     '''Define some emission property functions.'''
 
-    def blackbody(r):
-        '''Blackbody. No normalisation.'''
+    def __init__(self, model='blackbody'):
+        '''Get an object to do emission properties.
+        
+        Parameters
+        ----------
+        model : str, optional
+            Name of emission model to use.
+        '''
+        self.select(model)
+
+
+    def select(self,model):
+
+        models = {
+            'blackbody':{'func':self.blackbody,
+                        'params':self.blackbody_params}
+                  }
+
+        self.emit = models[model]['func']
+        self.params = models[model]['params']
+
+
+    # blackbody, no knobs
+    blackbody_params = []
+    def blackbody(self, r, p):
+        '''Blackbody at long wavelengths.'''
         return 1.0/r**0.5
 
 
@@ -108,10 +133,9 @@ class Image(object):
     '''Image generation.'''
 
     def __init__(self,image_size=None, arcsec_pix=None, rmax_arcsec=None,
-                 model='los_image_axisym',
+                 model='los_image_axisym', emit_model='blackbody',
                  dens_model='gauss_3d', dens_args={},
-                 emit_model='blackbody',
-                 verbose=True):
+                 z_fact=1, verbose=True):
         '''Get an object to make images.
 
         Parameters
@@ -135,6 +159,7 @@ class Image(object):
         self.emit_model = emit_model
         self.dens_model = dens_model
         self.arcsec_pix = arcsec_pix
+        self.z_fact = z_fact
 
         # set fixed some things needed to make images
         self.nx, self.ny = self.image_size
@@ -154,12 +179,15 @@ class Image(object):
         self.dens_params = d.params
         self.n_dens_params = len(self.dens_params)
 
-        # paste the params together
-        self.params = self.image_params + self.dens_params
-
         # set the emission properties function
-        if emit_model == 'blackbody':
-            self.emit = Emit.blackbody
+        e = Emit(model=emit_model)
+        self.emit = e.emit
+        self.emit_params = e.params
+        self.n_emit_params = len(self.emit_params)
+
+        # paste the params together
+        self.params = self.image_params + self.emit_params + self.dens_params
+        self.n_params = len(self.params)
 
         # say something about the model
         if verbose:
@@ -213,7 +241,9 @@ class Image(object):
         self.cc = (slice(self.ny2-self.rmax,self.ny2+self.rmax),
                    slice(self.nx2-self.rmax,self.nx2+self.rmax))
         a = np.arange(self.crop_size) - (self.crop_size-1)/2.
-        self.zarray, self.yarray = np.meshgrid(a, a)
+        z_crop = int(self.crop_size * self.z_fact)
+        b = ( np.arange(z_crop) - (z_crop-1)/2. ) / self.z_fact
+        self.zarray, self.yarray = np.meshgrid(b, a)
 
 
     los_image_full_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
@@ -268,7 +298,8 @@ class Image(object):
             el = np.arctan2(z3,rxy)
 
             # the density in this y,z layer
-            layer = self.emit(r) * self.dens(r,az,el,p[6:])
+            layer = self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
+                    self.dens(r,az,el,p[6+self.n_emit_params:])
 
             # put this in the image
             image[self.ny2-self.rmax:self.ny2+self.rmax,
