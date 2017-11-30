@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import numpy as np
 
 class Dens(object):
@@ -84,11 +86,14 @@ class Dens(object):
     box_3d_params = ['$r_0$','$\delta_r$','$\delta_h$']
     def box_3d(self,r,az,el,p):
         '''Box torus. assume r,az,el are vectors.'''
-        dens = np.zeros(len(r))
         in_i = (r > p[0]-p[1]/2.) & (r < p[0]+p[1]/2.) & \
                    (np.abs(r*np.sin(el)) <= p[2]/2)
-        dens[in_i] = 1.0
-        return dens
+        if isinstance(in_i,(bool,np.bool_)):
+            return float(in_i)
+        else:
+            dens = np.zeros(r.shape)
+            dens[in_i] = 1.0
+            return dens
 
 
 class Emit(object):
@@ -135,7 +140,9 @@ class Image(object):
         self.nx, self.ny = self.image_size
         self.nx2 = self.nx // 2
         self.ny2 = self.ny // 2
-        if rmax_arcsec is not None:
+        if rmax_arcsec is None:
+            self.compute_rmax
+        else:
             self.set_rmax(rmax_arcsec)
 
         # set the image model
@@ -159,6 +166,8 @@ class Image(object):
             print('model:{} with density:{} and emit:{}'.\
                     format(model,dens_model,emit_model))
             print('parameters are {}'.format(self.params))
+            if not hasattr(self,'yarray'):
+                print('rmax not set, run compute_rmax to generate images')
 
 
     def select(self,model):
@@ -179,7 +188,7 @@ class Image(object):
         self.n_image_params = len(self.image_params)
 
 
-    def compute_rmax(self, p, tol=1e-5):
+    def compute_rmax(self, p, tol=1e-5, expand=1.2):
         '''Figure out model extent to make image generation quicker.
         
         Work inwards, stopping when density becomes non-zero.
@@ -189,8 +198,9 @@ class Image(object):
             for az in np.arange(0,360,30):
                 for el in np.arange(-90,90,15):
                     if self.dens(r,az,el,p[self.n_image_params:]) > tol:
-                        self.set_rmax(r)
-                        print('found r_max: {} ({} pix)'.format(r,self.rmax))
+                        self.set_rmax(r * expand)
+                        print('found r_max: {} ({} pix)'.\
+                              format(self.rmax_arcsec,self.rmax))
                         return None
 
 
