@@ -17,14 +17,14 @@ from galario import arcsec
 
 import alma.image
 
-get_ipython().run_line_magic('matplotlib', 'notebook')
+#get_ipython().run_line_magic('matplotlib', 'notebook')
 
 
 # In[2]:
 
 
 # import the data
-u, v, Re, Im, w = np.require( np.loadtxt("hr4796-uv-spw0-w32-t20s.txt", unpack=True),
+u, v, Re, Im, w = np.require( np.loadtxt("hr4796-uv-spw0-w64-t30s.txt", unpack=True),
                              requirements=["C_CONTIGUOUS"])
 
 wle = 862e-6  # [m] from the header of the uv file
@@ -35,11 +35,12 @@ v /= wle
 w /= np.sum( ( Re**2.0 + Im**2.0) * w ) / len(w)
 
 
-# In[9]:
+# In[3]:
 
 
 # set image properties, can cut dxy down for speed (at the cost of reduced accuracy)
 nxy, dxy = gd.get_image_size(u, v, verbose=True)
+dxy *= 2
 dxy_arcsec = dxy / arcsec
 
 xc = (nxy-1)/2.
@@ -47,18 +48,18 @@ x = np.arange(nxy)-xc
 xx,yy = np.meshgrid(x,x)
 
 
-# In[10]:
+# In[4]:
 
 
 # make the image object
 ii = alma.image.Image(arcsec_pix=dxy_arcsec, image_size=(nxy, nxy), dens_model='gauss_3d', z_fact=1)
 
 
-# In[11]:
+# In[5]:
 
 
 # parameters, got somehow...
-p0 = [0.02, 0.02, 26.0, 76, 0.015, 1., 0.04, 0.01]
+p0 = [0.02, 0.02, 26.0, 76, 0.015, 1., 0.04, 0.04]
 
 # parameter space domain
 p_ranges = [[-0.1, 0.1],
@@ -71,14 +72,14 @@ p_ranges = [[-0.1, 0.1],
             [0.0, 1.]]
 
 
-# In[12]:
+# In[6]:
 
 
 # set rmax based on these params
 ii.compute_rmax(p0)
 
 # this gives an idea of how long an mcmc might take
-get_ipython().run_line_magic('timeit', 'ii.image_full(p0)')
+#get_ipython().run_line_magic('timeit', 'ii.image_full(p0)')
 
 im = ii.image(p0[3:])
 fig,ax = plt.subplots()
@@ -106,11 +107,12 @@ def lnpostfn(p):
 nlnpostfn = lambda p: -lnpostfn(p)
 
 
-# In[ ]:
+# In[8]:
 
 
 # get a best fit to estimate mcmc starting params
-res = scipy.optimize.minimize(nlnpostfn, p0, method='Nelder-Mead')
+res = scipy.optimize.minimize(nlnpostfn, p0, method='Nelder-Mead',
+                             options={'maxiter':100})
 print(res['x'])
 p0 = np.array(res['x'])
 
@@ -120,27 +122,29 @@ fig,ax = plt.subplots()
 ax.imshow(im[ii.cc],origin='bottom')
 
 
-# In[ ]:
+# In[9]:
 
 
+# set up and run mcmc fitting
 ndim = len(p_ranges)        # number of dimensions
 nwalkers = 16               # number of walkers
-nsteps = 1000               # total number of MCMC steps
-nthreads = 8                # CPU threads that emcee should use
+nsteps = 100                # total number of MCMC steps
+nthreads = 4                # CPU threads that emcee should use
 
 sampler = emcee.EnsembleSampler(nwalkers, ndim, lnpostfn, threads=nthreads)
 
 # initialize the walkers with an ndim-dimensional Gaussian ball
-pos = [p0 + p0*0.01*np.random.randn(ndim) for i in range(nwalkers)]
+pos = [p0 + p0*0.05*np.random.randn(ndim) for i in range(nwalkers)]
 
 # execute the MCMC
 pos, prob, state = sampler.run_mcmc(pos, nsteps)
 
 
-# In[ ]:
+# In[10]:
 
 
-burn = 200
+# see what the chains look like, skip a burn in period if desired
+burn = 0
 fig,ax = plt.subplots(ndim+1,figsize=(9.5,5),sharex=True)
 for j in range(nwalkers):
     ax[-1].plot(sampler.lnprobability[j,burn:])
@@ -151,24 +155,24 @@ for j in range(nwalkers):
 fig.savefig('chains.png')
 
 
-# In[ ]:
+# In[11]:
 
 
-# plot the resulting MCMC
+# make the corner plot
 fig = corner.corner(sampler.chain[:,burn:,:].reshape((-1,ndim)), labels=ii.params,
                     show_titles=True)
 
 fig.savefig('corner.png')
 
 
-# In[ ]:
+# In[12]:
 
 
 # get the median parameters
-# p = np.median(sampler.chain[:,burn:,:].reshape((-1,ndim)),axis=0)
-# s = np.std(sampler.chain[:,burn:,:].reshape((-1,ndim)),axis=0)
-# print(p)
-# print(s)
+p = np.median(sampler.chain[:,burn:,:].reshape((-1,ndim)),axis=0)
+s = np.std(sampler.chain[:,burn:,:].reshape((-1,ndim)),axis=0)
+print(p)
+print(s)
 p=p0
 
 # recompute the limits for the full rotated image

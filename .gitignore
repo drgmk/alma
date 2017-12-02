@@ -7,3 +7,4 @@ docs/_build/
 docs/_templates/
 docs/_static/
 alma.egg-info/
+examples/.ipynb_checkpoints
