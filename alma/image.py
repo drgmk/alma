@@ -49,6 +49,8 @@ class Dens(object):
                              'params':self.gauss_3d_test_params},
             'power_3d':{'func':self.power_3d,
                         'params':self.power_3d_params},
+            'power_top_3d':{'func':self.power_top_3d,
+                        'params':self.power_top_3d_params},
             'box_3d':{'func':self.box_3d,
                         'params':self.box_3d_params}
                   }
@@ -87,7 +89,7 @@ class Dens(object):
         '''Gaussian torus, independent inner and outer sigma.'''
         if r <= p[0]:
             return np.exp( -( 0.5*(r-p[0])/p[1] )**2 ) * \
-                        np.exp( -0.5*(r*np.sin(el)/p[2])**2 )
+                        np.exp( -0.5*(r*np.sin(el)/p[3])**2 )
         else:
             return np.exp( -( 0.5*(r-p[0])/p[2] )**2 ) * \
                         np.exp( -0.5*(r*np.sin(el)/p[3])**2 )
@@ -97,7 +99,7 @@ class Dens(object):
     def gauss_3d_test(self,r,az,el,p):
         '''Gaussian torus with a test azimuthal dependence.'''
         return np.exp( -( 0.5*(r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(r*np.sin(el)/p[2])**2 ) * \
+                    np.exp( -0.5*(r*np.sin(el)/p[3])**2 ) * \
                     (az+2*np.pi)%(2*np.pi)
 
     # Power law torus and parameters
@@ -105,7 +107,18 @@ class Dens(object):
     def power_3d(self,r,az,el,p):
         '''Power law radial profile with Gaussian scale height.'''
         return 1/np.sqrt( (r/p[0])**p[1] + (r/p[0])**(-p[2]) ) * \
-                    np.exp( -0.5*(r*np.sin(el)/p[2])**2 )
+                    np.exp( -0.5*(r*np.sin(el)/p[3])**2 )
+
+    # Power top-hat law torus and parameters
+    power_top_3d_params = ['$r_0$','$p_{in}$','$p_{out}$',
+                           '$\delta_r$','$\sigma_h$']
+    def power_top_3d(self,r,az,el,p):
+        '''Power law top hat radial profile with Gaussian scale height.'''
+        hw = p[3]/2.0
+        w2 = p[3]**2
+        return np.sqrt( (2+w2) / ( (r/(p[0]+hw))**(2*p[1]) + w2 +
+                                   (r/(p[0]-hw))**(-2*p[2]) ) ) * \
+                  np.exp( -0.5*(r*np.sin(el)/p[4])**2 )
 
     # Box torus and parameters
     box_3d_params = ['$r_0$','$\delta_r$','$\delta_h$']
@@ -243,8 +256,7 @@ class Image(object):
                     format(model,dens_model,emit_model))
             print('parameters are {}'.format(self.params))
             if rmax_arcsec is None:
-                print('rmax not set, run compute_rmax or image generation'
-                      ' may fail or take a while your image is large')
+                print('rmax not set, run compute_rmax before generating images')
 
 
     def select(self,model):
@@ -289,8 +301,10 @@ class Image(object):
         p : list or tuple
             Full list of model parameters.
         tol : float, optional
-            Level at which image is considered zero, relies on density
-            fuction having a peak value that is much larger (i.e. near 1).
+            Level at which image is considered zero. For radial_only
+            this relies on the density fuction having a peak near 1,
+            otherwise it is relative to the peak when summed along the
+            relevant axis.
         expand : int, optional
             Number of pixels to pad the image by.
         image_full : bool, optional
@@ -299,7 +313,8 @@ class Image(object):
             Do just a radial calculation of the limits.
         '''
     
-        # Work inwards, stopping when density becomes non-zero.
+        # Work inwards, stopping when density becomes non-zero. Density
+        # model is assumed to peak near 1 so absolute tolerance is used.
         if radial_only or self.rmax[0] == self.nx2:
             
             def find_radial():
@@ -326,17 +341,20 @@ class Image(object):
         
             # find model extents, zarray may be higher resolution by
             # factor z_fact, so account for this here
+            x_sum = np.sum(cube,axis=(0,1))
             xmax = np.max(
-       np.append(np.where( np.sum(cube,axis=(0,1)) > tol )[0]-self.rmax[0],
-                 self.rmax[0]-np.where( np.sum(cube,axis=(0,1)) > tol )[0])
+       np.append(np.where( x_sum/np.max(x_sum) > tol )[0]-self.rmax[0],
+                 self.rmax[0]-np.where( x_sum/np.max(x_sum) > tol )[0])
                                )
+            y_sum = np.sum(cube,axis=(1,2))
             ymax = np.max(
-       np.append(np.where( np.sum(cube,axis=(1,2)) > tol )[0]-self.rmax[1],
-                 self.rmax[1]-np.where( np.sum(cube,axis=(1,2)) > tol )[0])
+       np.append(np.where( y_sum/np.max(y_sum) > tol )[0]-self.rmax[1],
+                 self.rmax[1]-np.where( y_sum/np.max(y_sum) > tol )[0])
                                )
+            z_sum = np.sum(cube,axis=(0,2))
             zmax = int( np.max(
-       np.append(np.where( np.sum(cube,axis=(0,2)) > tol )[0]-self.rmax[2],
-                 self.rmax[2]-np.where( np.sum(cube,axis=(0,2)) > tol )[0])
+       np.append(np.where( z_sum/np.max(z_sum) > tol )[0]-self.rmax[2],
+                 self.rmax[2]-np.where( z_sum/np.max(z_sum) > tol )[0])
                                ) / self.z_fact )
             print('model x,y,z extent {}, {}, {}'.format(xmax,ymax,zmax))
 
@@ -433,6 +451,7 @@ class Image(object):
             return cube
 
         # go through slice by slice and get the flux along an x column
+        # attempts to speed this up using multiprocess.Pool failed
         else:
 
             image = np.zeros((self.ny, self.nx))
