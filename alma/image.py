@@ -5,7 +5,7 @@ import numpy as np
 class Dens(object):
     '''Define some density functions.
     
-    Should in general peak at or near 1, to aid finding integration box.
+    Should peak at or near 1, to aid finding integration box.
     '''
 
     def __init__(self,model='gauss_3d',gaussian_scale_height=0.05):
@@ -19,9 +19,24 @@ class Dens(object):
             Scale height to use for fixed-height models.
         '''
         self.gaussian_scale_height = gaussian_scale_height
-        self.select(model)
+        self.select(model=model)
 
-    def select(self,model):
+
+    def select(self,model=None, func=None, params=None,
+               list_models=False):
+        '''Select a density model.
+        
+        Parameters
+        ----------
+        model : str
+            Name of model to use, one of list returned by list_models.
+        func : function
+            Custom function to use, takes r, az, el, par.
+        params : list
+            List of parameter names associated with custom function.
+        list_models : bool, optional
+            Return list of available models.
+        '''
 
         models = {
             'gauss_3d':{'func':self.gauss_3d,
@@ -37,15 +52,24 @@ class Dens(object):
             'box_3d':{'func':self.box_3d,
                         'params':self.box_3d_params}
                   }
+    
+        if list_models:
+            return list(models.keys())
 
-        self.dens = models[model]['func']
-        self.params = models[model]['params']
+        if func is None:
+            self.dens = models[model]['func']
+            self.params = models[model]['params']
+        elif func is not None and params is not None:
+            self.dens = func
+            self.params = params
+        else:
+            raise ValueError('incorrect arguments')
 
 
     # Gaussian torus and parameters
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
     def gauss_3d(self, r, az, el, p):
-#        '''Gaussian torus.'''
+        '''Gaussian torus.'''
         return np.exp( -( 0.5*(r-p[0])/p[1] )**2 ) * \
                     np.exp( -0.5*(r*np.sin(el)/p[2])**2 )
 
@@ -98,7 +122,7 @@ class Dens(object):
 
 
 class Emit(object):
-    '''Define some emission property functions.'''
+    '''Define some emission functions.'''
 
     def __init__(self, model='blackbody'):
         '''Get an object to do emission properties.
@@ -111,21 +135,44 @@ class Emit(object):
         self.select(model)
 
 
-    def select(self,model):
+    def select(self, model=None, func=None, params=None,
+               list_models=False):
+        '''Select an emission model.
+        
+        Parameters
+        ----------
+        model : str
+            Name of model to use, one of list returned by list_models.
+        func : function
+            Custom function to use, takes r, par.
+        params : list
+            List of parameter names associated with custom function.
+        list_models : bool, optional
+            Return list of available models.
+        '''
 
         models = {
             'blackbody':{'func':self.blackbody,
                         'params':self.blackbody_params}
                   }
 
-        self.emit = models[model]['func']
-        self.params = models[model]['params']
+        if list_models:
+            return list(models.keys())
+
+        if func is None:
+            self.emit = models[model]['func']
+            self.params = models[model]['params']
+        elif func is not None and params is not None:
+            self.emit = func
+            self.params = params
+        else:
+            raise ValueError('incorrect arguments')
 
 
     # blackbody, no knobs
     blackbody_params = []
     def blackbody(self, r, p):
-        '''Blackbody at long wavelengths.'''
+        '''Blackbody.'''
         return 1.0/r**0.5
 
 
@@ -201,7 +248,13 @@ class Image(object):
 
 
     def select(self,model):
-        '''Select the model we want to use.'''
+        '''Select the model we want to use.
+        
+        Parameters
+        ----------
+        model : str
+            Name of model to use for image generation.
+        '''
 
         models = {
                 'los_image':{'fit_func':self.los_image,
@@ -274,16 +327,16 @@ class Image(object):
             # find model extents, zarray may be higher resolution by
             # factor z_fact, so account for this here
             xmax = np.max(
-                   np.append(np.where( np.sum(cube,axis=(0,1)) > tol )[0]-self.rmax[0],
-                             self.rmax[0]-np.where( np.sum(cube,axis=(0,1)) > tol )[0])
+       np.append(np.where( np.sum(cube,axis=(0,1)) > tol )[0]-self.rmax[0],
+                 self.rmax[0]-np.where( np.sum(cube,axis=(0,1)) > tol )[0])
                                )
             ymax = np.max(
-                   np.append(np.where( np.sum(cube,axis=(1,2)) > tol )[0]-self.rmax[1],
-                             self.rmax[1]-np.where( np.sum(cube,axis=(1,2)) > tol )[0])
+       np.append(np.where( np.sum(cube,axis=(1,2)) > tol )[0]-self.rmax[1],
+                 self.rmax[1]-np.where( np.sum(cube,axis=(1,2)) > tol )[0])
                                )
             zmax = int( np.max(
-                   np.append(np.where( np.sum(cube,axis=(0,2)) > tol )[0]-self.rmax[2],
-                             self.rmax[2]-np.where( np.sum(cube,axis=(0,2)) > tol )[0])
+       np.append(np.where( np.sum(cube,axis=(0,2)) > tol )[0]-self.rmax[2],
+                 self.rmax[2]-np.where( np.sum(cube,axis=(0,2)) > tol )[0])
                                ) / self.z_fact )
             print('model x,y,z extent {}, {}, {}'.format(xmax,ymax,zmax))
 
@@ -319,7 +372,8 @@ class Image(object):
     def los_image_full(self, p, cube=False):
         '''Return an image of a disk.
 
-        Heavily 'borrows' from zodipic.
+        Heavily 'borrows' from zodipic, this is why the rotations are in
+        weird directions...
         
         Parameters
         ----------
@@ -412,25 +466,21 @@ class Image(object):
 
 
     def los_image(self, p, cube=False):
-        '''Cut down version of los_image_full, not x/y offset, postion
-        angle.
-        '''
+        '''Version of los_image_full, no x/y offset, postion angle.'''
         return self.los_image_full(np.append([0.0,0.0,0.0],p),
                                    cube=cube)
 
 
-    los_image_axisym_params = ['x_0','y_0','$\Omega$','$i$','F']
+    los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
     def los_image_axisym_full(self, p, cube=False):
-        '''Version of los_image_full, but no anomaly dependence in 
-        density function.
-        '''
+        '''Version of los_image_full, no anomaly dependence in dens.'''
         return self.los_image_full(np.append(p[:3],np.append(0.0,p[3:])),
                                    cube=cube)
 
 
     def los_image_axisym(self, p, cube=False):
-        '''Cut down version of los_image_full, not x/y offset, postion
-        angle, or anomaly dependence in density function.
+        '''Version of los_image_full, no x/y offset, postion
+        angle, or anomaly dependence in dens.
         '''
         return self.los_image_full(np.append([0.0,0.0,0.0,0.0],p),
                                    cube=cube)
