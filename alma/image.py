@@ -72,14 +72,14 @@ class Dens(object):
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
     def gauss_3d(self, r, az, el, p):
         '''Gaussian torus.'''
-        return np.exp( -( 0.5*(r-p[0])/p[1] )**2 ) * \
+        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
                     np.exp( -0.5*(r*np.sin(el)/p[2])**2 )
 
     # Gaussian torus with fixed scale height and parameters
     gauss_2d_params = ['$r_0$','$\sigma_r$']
     def gauss_2d(self, r, az, el, p):
         '''Gaussian torus with fixed scale height.'''
-        return np.exp( -( 0.5*(r-p[0])/p[1] )**2 ) * \
+        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
                 np.exp( -0.5*(r*np.sin(el)/self.gaussian_scale_height)**2 )
 
     # Gaussian in/out torus and parameters
@@ -88,7 +88,7 @@ class Dens(object):
     def gauss2_3d(self,r,az,el,p):
         '''Gaussian torus, independent inner and outer sigma.'''
         if r <= p[0]:
-            return np.exp( -( 0.5*(r-p[0])/p[1] )**2 ) * \
+            return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
                         np.exp( -0.5*(r*np.sin(el)/p[3])**2 )
         else:
             return np.exp( -( 0.5*(r-p[0])/p[2] )**2 ) * \
@@ -98,7 +98,7 @@ class Dens(object):
     gauss_3d_test_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
     def gauss_3d_test(self,r,az,el,p):
         '''Gaussian torus with a test azimuthal dependence.'''
-        return np.exp( -( 0.5*(r-p[0])/p[1] )**2 ) * \
+        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
                     np.exp( -0.5*(r*np.sin(el)/p[3])**2 ) * \
                     (az+2*np.pi)%(2*np.pi)
 
@@ -195,6 +195,7 @@ class Image(object):
     def __init__(self,image_size=None, arcsec_pix=None, rmax_arcsec=None,
                  model='los_image_axisym', emit_model='blackbody',
                  dens_model='gauss_3d', dens_args={},
+                 wavelength=None,
                  z_fact=1, verbose=True):
         '''Get an object to make images.
 
@@ -210,8 +211,12 @@ class Image(object):
             Integration model to use; includes anomaly or not
         dens_model: str
             Density model to use. Takes some parameters
+        dens_args : dict
+            Dict of args to be passed to dens.
         emit_model: str
             Emission model to use. Takes no parameters
+        wavelength : float
+            Wavelength of observations in m, used to create primary beam.
         '''
 
         self.image_size = image_size
@@ -219,6 +224,8 @@ class Image(object):
         self.emit_model = emit_model
         self.dens_model = dens_model
         self.arcsec_pix = arcsec_pix
+        self.rad_pix = arcsec_pix / (3600*180/np.pi)
+        self.wavelength = wavelength
         self.z_fact = z_fact
 
         # set fixed some things needed to make images
@@ -233,6 +240,9 @@ class Image(object):
 
         # set the image model
         self.select(model)
+        
+        # generate the primary beam
+        self.primary_beam(self.wavelength)
 
         # set the density distribution function
         d = Dens(model=dens_model,**dens_args)
@@ -385,6 +395,28 @@ class Image(object):
         z = ( np.arange(z_crop) - (z_crop-1)/2. ) / self.z_fact
         self.zarray, self.yarray = np.meshgrid(z, y)
 
+
+    def primary_beam(self, wavelength, diameter=12.0):
+        '''Create an image of the primary beam.
+            
+        Use Gaussian of FWHM 1.13 lambda/D, based on this:
+        https://help.almascience.org/index.php?/Knowledgebase/Article/View/234
+        
+        Parameters
+        ----------
+        wavelength : float
+            Wavelength of observation in m.
+        diameter : float, optional
+            Single disk diameter, default is 12m (i.e. ALMA).
+        '''
+        
+        x = np.arange(self.nx) - (self.nx-1)/2.
+        y = np.arange(self.ny) - (self.ny-1)/2.
+        xx,yy = np.meshgrid(x,y)
+        r = np.sqrt(xx**2 + yy**2) * self.rad_pix
+        
+        self.pb = np.exp(-0.5 * ( r / (1.13*wavelength/diameter/2.35) )**2 )
+    
 
     los_image_full_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
     def los_image_full(self, p, cube=False):
