@@ -99,7 +99,7 @@ class Dens(object):
     def gauss_3d_test(self,r,az,el,p):
         '''Gaussian torus with a test azimuthal dependence.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(r*np.sin(el)/p[3])**2 ) * \
+                    np.exp( -0.5*(r*np.sin(el)/p[2])**2 ) * \
                     (az+2*np.pi)%(2*np.pi)
 
     # Power law torus and parameters
@@ -182,7 +182,7 @@ class Emit(object):
             raise ValueError('incorrect arguments')
 
 
-    # blackbody, no knobs
+    # blackbody, no knobs, p is a dummy
     blackbody_params = []
     def blackbody(self, r, p):
         '''Blackbody.'''
