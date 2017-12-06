@@ -195,7 +195,7 @@ class Image(object):
     def __init__(self,image_size=None, arcsec_pix=None, rmax_arcsec=None,
                  model='los_image_axisym', emit_model='blackbody',
                  dens_model='gauss_3d', dens_args={},
-                 wavelength=None,
+                 wavelength=None, no_primary_beam=False,
                  z_fact=1, verbose=True):
         '''Get an object to make images.
 
@@ -242,16 +242,21 @@ class Image(object):
         self.select(model)
         
         # generate the primary beam
-        self.primary_beam(self.wavelength)
+        if no_primary_beam:
+            self.pb = None
+        else:
+            self.primary_beam(self.wavelength)
 
         # set the density distribution function
         d = Dens(model=dens_model,**dens_args)
+        self.Dens = d
         self.dens = d.dens
         self.dens_params = d.params
         self.n_dens_params = len(self.dens_params)
 
         # set the emission properties function
         e = Emit(model=emit_model)
+        self.Emit = e
         self.emit = e.emit
         self.emit_params = e.params
         self.n_emit_params = len(self.emit_params)
@@ -381,10 +386,16 @@ class Image(object):
             One or three integers giving the pixel extent of the model.
         '''
 
+        # check input
         if not isinstance(rmax,np.ndarray):
             raise TypeError('please pass set_rmax an np.ndarray')
         if len(rmax) == 1:
             rmax = np.tile(rmax,3)
+
+        # restrict to full image size, z can go to any depth
+        if rmax[0] > self.nx2: rmax[0] = self.nx2
+        if rmax[1] > self.ny2: rmax[1] = self.ny2
+
         self.rmax = rmax.astype(int)
         self.rmax_arcsec = self.rmax * self.arcsec_pix
         self.crop_size = self.rmax * 2
