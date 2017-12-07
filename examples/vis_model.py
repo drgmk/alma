@@ -72,10 +72,6 @@ nxy, dxy = gd.get_image_size(u, v, verbose=True)
 dxy *= 2
 dxy_arcsec = dxy / arcsec
 
-xc = (nxy-1)/2.
-x = np.arange(nxy)-xc
-xx,yy = np.meshgrid(x,x)
-
 
 # In[4]:
 
