@@ -22,7 +22,7 @@ class Dens(object):
         self.select(model=model)
 
 
-    def select(self,model=None, func=None, params=None,
+    def select(self,model=None, func=None, params=None, p_ranges=None,
                list_models=False):
         '''Select a density model.
         
@@ -34,42 +34,64 @@ class Dens(object):
             Custom function to use, takes r, az, el, par.
         params : list
             List of parameter names associated with custom function.
+        p_ranges : list of two-element lists
+            List of ranges for each parameter.
         list_models : bool, optional
             Return list of available models.
         '''
 
         models = {
             'gauss_3d':{'func':self.gauss_3d,
-                        'params':self.gauss_3d_params},
+                        'params':self.gauss_3d_params,
+                        'p_ranges':self.gauss_3d_p_ranges},
             'gauss_2d':{'func':self.gauss_2d,
-                        'params':self.gauss_2d_params},
+                        'params':self.gauss_2d_params,
+                        'p_ranges':self.gauss_3d_p_ranges},
             'gauss2_3d':{'func':self.gauss2_3d,
-                        'params':self.gauss2_3d_params},
+                        'params':self.gauss2_3d_params,
+                        'p_ranges':self.gauss2_3d_p_ranges},
             'gauss_3d_test':{'func':self.gauss_3d_test,
-                             'params':self.gauss_3d_test_params},
+                             'params':self.gauss_3d_test_params,
+                             'p_ranges':self.gauss_3d_test_p_ranges},
             'power_3d':{'func':self.power_3d,
-                        'params':self.power_3d_params},
+                        'params':self.power_3d_params,
+                        'p_ranges':self.power_3d_p_ranges},
             'power_top_3d':{'func':self.power_top_3d,
-                        'params':self.power_top_3d_params},
+                        'params':self.power_top_3d_params,
+                        'p_ranges':self.power_top_3d_p_ranges},
             'box_3d':{'func':self.box_3d,
-                        'params':self.box_3d_params}
+                        'params':self.box_3d_params,
+                        'p_ranges':self.box_3d_p_ranges},
                   }
     
         if list_models:
             return list(models.keys())
 
         if func is None:
+            self.model = model
             self.dens = models[model]['func']
             self.params = models[model]['params']
+            self.p_ranges = models[model]['p_ranges']
         elif func is not None and params is not None:
+            if model is None:
+                self.model = 'custom'
+            else:
+                self.model = model
             self.dens = func
             self.params = params
+            self.p_ranges = p_ranges
         else:
             raise ValueError('incorrect arguments')
 
+    # set the allowed ranges for radius, width, height, power exponent
+    rr = [0.,100.]
+    dr = [0.01,1.]
+    dh = [0.01,1.]
+    pr = [1.,50.]
 
     # Gaussian torus and parameters
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
+    gauss_3d_p_ranges = [rr,dr,dh]
     def gauss_3d(self, r, az, el, p):
         '''Gaussian torus.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
@@ -77,6 +99,7 @@ class Dens(object):
 
     # Gaussian torus with fixed scale height and parameters
     gauss_2d_params = ['$r_0$','$\sigma_r$']
+    gauss_2d_p_ranges = [rr,dr]
     def gauss_2d(self, r, az, el, p):
         '''Gaussian torus with fixed scale height.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
@@ -85,6 +108,7 @@ class Dens(object):
     # Gaussian in/out torus and parameters
     gauss2_3d_params = ['$r_0$','$\sigma_{r,in}$',
                         '$\sigma_{r,out}$','$\sigma_h$']
+    gauss2_3d_p_ranges = [rr,dr,dr,dh]
     def gauss2_3d(self,r,az,el,p):
         '''Gaussian torus, independent inner and outer sigma.'''
         if r <= p[0]:
@@ -96,6 +120,7 @@ class Dens(object):
 
     # Gaussian torus with wierd azimuthal dependence and parameters
     gauss_3d_test_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
+    gauss_3d_test_p_ranges = [rr,dr,dh]
     def gauss_3d_test(self,r,az,el,p):
         '''Gaussian torus with a test azimuthal dependence.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
@@ -104,6 +129,7 @@ class Dens(object):
 
     # Power law torus and parameters
     power_3d_params = ['$r_0$','$p_{in}$','$p_{out}$','$\sigma_h$']
+    power_3d_p_ranges = [rr,pr,pr,dh]
     def power_3d(self,r,az,el,p):
         '''Power law radial profile with Gaussian scale height.'''
         return 1/np.sqrt( (r/p[0])**p[1] + (r/p[0])**(-p[2]) ) * \
@@ -112,6 +138,7 @@ class Dens(object):
     # Power top-hat law torus and parameters
     power_top_3d_params = ['$r_0$','$p_{in}$','$p_{out}$',
                            '$\delta_r$','$\sigma_h$']
+    power_top_3d_p_ranges = [rr,pr,pr,dr,dh]
     def power_top_3d(self,r,az,el,p):
         '''Power law top hat radial profile with Gaussian scale height.'''
         hw = p[3]/2.0
@@ -122,6 +149,7 @@ class Dens(object):
 
     # Box torus and parameters
     box_3d_params = ['$r_0$','$\delta_r$','$\delta_h$']
+    box_3d_p_ranges = [rr,[0.01,100.],[0.01,100.]]
     def box_3d(self,r,az,el,p):
         '''Box torus. assume r,az,el are vectors.'''
         in_i = (r > p[0]-p[1]/2.) & (r < p[0]+p[1]/2.) & \
@@ -148,7 +176,7 @@ class Emit(object):
         self.select(model)
 
 
-    def select(self, model=None, func=None, params=None,
+    def select(self, model=None, func=None, params=None, p_ranges=None,
                list_models=False):
         '''Select an emission model.
         
@@ -160,30 +188,41 @@ class Emit(object):
             Custom function to use, takes r, par.
         params : list
             List of parameter names associated with custom function.
+        p_ranges : list of two-element lists
+            List of ranges for each parameter.
         list_models : bool, optional
             Return list of available models.
         '''
 
         models = {
             'blackbody':{'func':self.blackbody,
-                        'params':self.blackbody_params}
+                         'params':self.blackbody_params,
+                         'p_ranges':self.blackbody_p_ranges}
                   }
 
         if list_models:
             return list(models.keys())
 
         if func is None:
+            self.model = model
             self.emit = models[model]['func']
             self.params = models[model]['params']
+            self.p_ranges = models[model]['p_ranges']
         elif func is not None and params is not None:
+            if model is None:
+                self.model = 'custom'
+            else:
+                self.model = model
             self.emit = func
             self.params = params
+            self.p_ranges = p_ranges
         else:
             raise ValueError('incorrect arguments')
 
 
     # blackbody, no knobs, p is a dummy
     blackbody_params = []
+    blackbody_p_ranges = []
     def blackbody(self, r, p):
         '''Blackbody.'''
         return 1.0/r**0.5
@@ -252,6 +291,7 @@ class Image(object):
         self.Dens = d
         self.dens = d.dens
         self.dens_params = d.params
+        self.dens_p_ranges = d.p_ranges
         self.n_dens_params = len(self.dens_params)
 
         # set the emission properties function
@@ -259,10 +299,12 @@ class Image(object):
         self.Emit = e
         self.emit = e.emit
         self.emit_params = e.params
+        self.emit_p_ranges = e.p_ranges
         self.n_emit_params = len(self.emit_params)
 
         # paste the params together
         self.params = self.image_params + self.emit_params + self.dens_params
+        self.p_ranges = self.image_p_ranges + self.emit_p_ranges + self.dens_p_ranges
         self.n_params = len(self.params)
 
         # say something about the model
@@ -284,17 +326,22 @@ class Image(object):
         '''
 
         models = {
-                'los_image':{'fit_func':self.los_image,
-                             'full_func':self.los_image_full,
-                             'params':self.los_image_full_params},
-                'los_image_axisym':{'fit_func':self.los_image_axisym,
-                                    'full_func':self.los_image_axisym_full,
-                                    'params':self.los_image_axisym_params}
+            'los_image':{'fit_func':self.los_image,
+                         'full_func':self.los_image_full,
+                         'params':self.los_image_full_params,
+                         'p_ranges':self.los_image_p_ranges
+                        },
+            'los_image_axisym':{'fit_func':self.los_image_axisym,
+                                'full_func':self.los_image_axisym_full,
+                                'params':self.los_image_axisym_params,
+                                'p_ranges':self.los_image_axisym_p_ranges
+                        }
                   }
 
         self.image = models[model]['fit_func']
         self.image_full = models[model]['full_func']
         self.image_params = models[model]['params']
+        self.image_p_ranges = models[model]['p_ranges']
         self.n_image_params = len(self.image_params)
 
 
@@ -430,6 +477,8 @@ class Image(object):
     
 
     los_image_full_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
+    los_image_p_ranges = [[-0.1,0.1], [-0.1,0.1], [-180,180],
+                          [-180,180], [0.,90], [0.,10.]]
     def los_image_full(self, p, cube=False):
         '''Return an image of a disk.
 
@@ -534,6 +583,8 @@ class Image(object):
 
 
     los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
+    los_image_axisym_p_ranges = [[-0.1,0.1], [-0.1,0.1],
+                                 [-180,180], [0.,90], [0.,10.]]
     def los_image_axisym_full(self, p, cube=False):
         '''Version of los_image_full, no anomaly dependence in dens.'''
         return self.los_image_full(np.append(p[:3],np.append(0.0,p[3:])),
