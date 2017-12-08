@@ -40,6 +40,24 @@ def test_image_face_on_disk():
     im_test /= np.sum(im_test)
     assert(np.allclose(im, im_test, rtol=0.0005))
 
+def test_image_edge_on_disk():
+    sz = 200
+    xc = (sz-1)/2.
+    x = np.arange(sz)-xc
+    xx,yy = np.meshgrid(x,x)
+    x0, y0 = 0, 0
+    p = [x0,y0,0,90,1,80,5,0.05]
+    r = np.sqrt((xx-x0)**2 + (yy-y0)**2)
+    d = alma.image.Image(arcsec_pix=1, dens_model='gauss_3d',
+                         image_size=(sz,sz), wavelength=1e-3)
+    d.compute_rmax(p)
+    im = d.image_full(p)
+    im = np.sum(im,axis=1)
+    im_test = d.dens(r,0,0,p[5:]) * d.emit(r,np.inf)
+    im_test = np.sum(im_test,axis=1)
+    im_test /= np.sum(im_test)
+    assert(np.allclose(im, im_test, rtol=0.001))
+
 def test_set_rmax():
     sz = 200
     rmax = 1000
