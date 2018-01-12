@@ -3,7 +3,7 @@ import numpy as np
 
 '''CASA functions related to fitting models to ALMA data.'''
 
-def residual(ms, vis_model, tb, ms_new='sub.ms', remove_new=True):
+def residual(ms, vis_model, tb, ms_new='residual.ms', remove_new=True):
     '''Create a new ms with the model subtracted.
         
     Parameters
