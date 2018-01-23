@@ -103,7 +103,7 @@ class Dens(object):
     def gauss_2d(self, r, az, el, p):
         '''Gaussian torus with fixed scale height.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                np.exp( -0.5*(r*np.sin(el)/self.gaussian_scale_height)**2 )
+                np.exp( -0.5*(el/self.gaussian_scale_height)**2 )
 
     # Gaussian in/out torus and parameters
     gauss2_3d_params = ['$r_0$','$\sigma_{r,in}$',
