@@ -21,9 +21,14 @@ def residual(ms, vis_model, tb, ms_new='residual.ms', remove_new=True):
     '''
 
     # copy ms to a new ms that we will modify
-    if remove_new:
-        os.system('rm -r '+ms_new)
+    if os.path.exists(ms_new):
+        if remove_new:
+            os.system('rm -r '+ms_new)
+
+    if not os.path.exists(ms_new):
         os.system('cp -r '+ms+' '+ms_new)
+    else:
+        raise FileExistsError('file {} exists'.format(ms_new))
 
     # open the ms and get the data, this has shape [2,nchan,nrow], where
     # the 2 is two polarisations
