@@ -38,7 +38,7 @@ def test_image_face_on_disk():
     im = d.image_full(p)
     im_test = d.dens(r,0,0,p[5:]) * d.emit(r,np.inf)
     im_test /= np.sum(im_test)
-    assert(np.allclose(im, im_test, rtol=0.0005))
+    assert(np.allclose(im, im_test, atol=0.03*np.max(im)))
 
 def test_image_edge_on_disk():
     sz = 200
@@ -56,7 +56,7 @@ def test_image_edge_on_disk():
     im_test = d.dens(r,0,0,p[5:]) * d.emit(r,np.inf)
     im_test = np.sum(im_test,axis=1)
     im_test /= np.sum(im_test)
-    assert(np.allclose(im, im_test, rtol=0.001))
+    assert(np.allclose(im, im_test, atol=0.03*np.max(im)))
 
 def test_set_rmax():
     sz = 200

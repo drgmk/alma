@@ -15,7 +15,8 @@ def test_dens_types():
     for t in types:
         d.select(t)
         npar = len(d.params)
-        d.dens(1,0,0,np.arange(npar)+1.0)
+        d.dens(np.array(1),np.array(0),np.array(0),
+               np.arange(npar)+1.0)
 
 def test_dens_gauss_2d():
     r = np.arange(50)
