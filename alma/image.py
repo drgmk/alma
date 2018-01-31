@@ -8,7 +8,8 @@ class Dens(object):
     Should peak at or near 1, to aid finding integration box.
     '''
 
-    def __init__(self,model='gauss_3d',gaussian_scale_height=0.05):
+    def __init__(self,model='gauss_3d',gaussian_scale_height=0.05,
+                 func=None, params=None, p_ranges=None):
         '''Get an object to do density.
         
         Parameters
@@ -17,9 +18,16 @@ class Dens(object):
             Name of model to use.
         gaussian_scale_height: float
             Scale height to use for fixed-height models.
+        func : function
+            Density fuction to use.
+        params : list of str
+            Names of parameters in given func.
+        p_ranges : list of pairs
+            Allowed ranges of given parameters.
         '''
         self.gaussian_scale_height = gaussian_scale_height
-        self.select(model=model)
+        self.select(model=model, func=func, params=params,
+                    p_ranges=p_ranges)
 
 
     def select(self,model=None, func=None, params=None, p_ranges=None,
@@ -84,9 +92,9 @@ class Dens(object):
             raise ValueError('incorrect arguments')
 
     # set the allowed ranges for radius, width, height, power exponent
-    rr = [0.,100.]
-    dr = [0.01,1.]
-    dh = [0.01,1.]
+    rr = [0.,500.]
+    dr = [0.001,10.]
+    dh = [0.01,10.]
     pr = [1.,50.]
 
     # Gaussian torus and parameters
@@ -95,7 +103,7 @@ class Dens(object):
     def gauss_3d(self, r, az, el, p):
         '''Gaussian torus.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(r*np.sin(el)/p[2])**2 )
+                    np.exp( -0.5*(el/p[2])**2 )
 
     # Gaussian torus with fixed scale height and parameters
     gauss_2d_params = ['$r_0$','$\sigma_r$']
@@ -111,12 +119,16 @@ class Dens(object):
     gauss2_3d_p_ranges = [rr,dr,dr,dh]
     def gauss2_3d(self,r,az,el,p):
         '''Gaussian torus, independent inner and outer sigma.'''
-        if r <= p[0]:
-            return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                        np.exp( -0.5*(r*np.sin(el)/p[3])**2 )
-        else:
-            return np.exp( -( 0.5*(r-p[0])/p[2] )**2 ) * \
-                        np.exp( -0.5*(r*np.sin(el)/p[3])**2 )
+        dens = np.zeros(r.shape)
+        ok = r < p[0]
+        if np.any(ok):
+            dens[ok] = np.exp( -0.5*( (r[ok]-p[0])/p[1] )**2 ) * \
+                       np.exp( -0.5*(el[ok]/p[3])**2 )
+        out = np.invert(ok)
+        if np.any(out):
+            dens[out] = np.exp( -( 0.5*(r[out]-p[0])/p[2] )**2 ) * \
+                        np.exp( -0.5*(el[out]/p[3])**2 )
+        return dens
 
     # Gaussian torus with wierd azimuthal dependence and parameters
     gauss_3d_test_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
@@ -124,7 +136,7 @@ class Dens(object):
     def gauss_3d_test(self,r,az,el,p):
         '''Gaussian torus with a test azimuthal dependence.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(r*np.sin(el)/p[2])**2 ) * \
+                    np.exp( -0.5*(el/p[2])**2 ) * \
                     (az+2*np.pi)%(2*np.pi)
 
     # Power law torus and parameters
@@ -132,8 +144,8 @@ class Dens(object):
     power_3d_p_ranges = [rr,pr,pr,dh]
     def power_3d(self,r,az,el,p):
         '''Power law radial profile with Gaussian scale height.'''
-        return 1/np.sqrt( (r/p[0])**p[1] + (r/p[0])**(-p[2]) ) * \
-                    np.exp( -0.5*(r*np.sin(el)/p[3])**2 )
+        return 1/np.sqrt( (r/p[0])**p[2] + (r/p[0])**(-p[1]) ) * \
+                    np.exp( -0.5*(el/p[3])**2 )
 
     # Power top-hat law torus and parameters
     power_top_3d_params = ['$r_0$','$p_{in}$','$p_{out}$',
@@ -143,17 +155,17 @@ class Dens(object):
         '''Power law top hat radial profile with Gaussian scale height.'''
         hw = p[3]/2.0
         w2 = p[3]**2
-        return np.sqrt( (2+w2) / ( (r/(p[0]+hw))**(2*p[1]) + w2 +
-                                   (r/(p[0]-hw))**(-2*p[2]) ) ) * \
-                  np.exp( -0.5*(r*np.sin(el)/p[4])**2 )
+        return np.sqrt( (2+w2) / ( (r/(p[0]+hw))**(2*p[2]) + w2 +
+                                   (r/(p[0]-hw))**(-2*p[1]) ) ) * \
+                  np.exp( -0.5*(el/p[4])**2 )
 
     # Box torus and parameters
     box_3d_params = ['$r_0$','$\delta_r$','$\delta_h$']
-    box_3d_p_ranges = [rr,[0.01,100.],[0.01,100.]]
+    box_3d_p_ranges = [rr,dr,dh]
     def box_3d(self,r,az,el,p):
         '''Box torus. assume r,az,el are vectors.'''
         in_i = (r > p[0]-p[1]/2.) & (r < p[0]+p[1]/2.) & \
-                   (np.abs(r*np.sin(el)) <= p[2]/2)
+                   (np.abs(el) <= p[2]/2)
         if isinstance(in_i,(bool,np.bool_)):
             return float(in_i)
         else:
@@ -477,7 +489,7 @@ class Image(object):
     
 
     los_image_full_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
-    los_image_p_ranges = [[-0.1,0.1], [-0.1,0.1], [-180,180],
+    los_image_p_ranges = [[-1,1], [-1,1], [-180,180],
                           [-180,180], [0.,90], [0.,10.]]
     def los_image_full(self, p, cube=False):
         '''Return an image of a disk.
@@ -502,8 +514,8 @@ class Image(object):
         s0 = np.sin(np.deg2rad(-pos))
         c1 = np.cos(np.deg2rad(inc))
         s1 = np.sin(np.deg2rad(inc))
-        c2 = np.cos(np.deg2rad(-anom)+np.pi/2)
-        s2 = np.sin(np.deg2rad(-anom)+np.pi/2)
+        c2 = np.cos(np.deg2rad(-anom)+3*np.pi/2)
+        s2 = np.sin(np.deg2rad(-anom)+3*np.pi/2)
         c0c1c2 = c0 * c1 * c2
         c0c1s2 = c0 * c1 * s2
         c0s1 = c0 * s1
@@ -583,7 +595,7 @@ class Image(object):
 
 
     los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
-    los_image_axisym_p_ranges = [[-0.1,0.1], [-0.1,0.1],
+    los_image_axisym_p_ranges = [[-1,1], [-1,1],
                                  [-180,180], [0.,90], [0.,10.]]
     def los_image_axisym_full(self, p, cube=False):
         '''Version of los_image_full, no anomaly dependence in dens.'''
