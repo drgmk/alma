@@ -3,7 +3,8 @@ import numpy as np
 
 '''CASA functions related to fitting models to ALMA data.'''
 
-def residual(ms, vis_model, tb, ms_new='residual.ms', remove_new=True):
+def residual(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
+             ms_new='residual.ms', remove_new=True):
     '''Create a new ms with the model subtracted.
         
     Parameters
@@ -14,6 +15,8 @@ def residual(ms, vis_model, tb, ms_new='residual.ms', remove_new=True):
         File with model visibilities to subtract.
     tb : function
         casa tb function.
+    datacolumn : str
+        Column to subtract model from.
     ms_new : str, optional
         ms file to create and put residual data in.
     remove_new : bool, optional
@@ -33,7 +36,7 @@ def residual(ms, vis_model, tb, ms_new='residual.ms', remove_new=True):
     # open the ms and get the data, this has shape [2,nchan,nrow], where
     # the 2 is two polarisations
     tb.open(ms_new, nomodify=False)
-    data = tb.getcol("DATA")
+    data = tb.getcol(datacolumn)
     nchan = data.shape[1]
     nrow = data.shape[2]
 
@@ -46,5 +49,5 @@ def residual(ms, vis_model, tb, ms_new='residual.ms', remove_new=True):
     sub = data - vis_mod
 
     # put the data back in the table and close
-    tb.putcol("DATA", sub)
+    tb.putcol(datacolumn, sub)
     tb.close()
