@@ -2,6 +2,33 @@ from __future__ import print_function
 
 import numpy as np
 
+def rotate_zxz(z1,x,z2):
+    '''Return a rotation matrix.
+        
+    Parameters
+    ----------
+    z1 : float
+        Angle for first z rotation, in degrees.
+    x : float
+        Angle for x rotation, in degrees.
+    z2 : float
+        Angle for second z rotation, in degrees.
+    '''
+    c0 = np.cos(np.deg2rad(z1))
+    s0 = np.sin(np.deg2rad(z1))
+    t0 = np.array([ [c0,-s0,0], [s0,c0,0], [0,0,1] ])
+
+    c1 = np.cos(np.deg2rad(x))
+    s1 = np.sin(np.deg2rad(x))
+    t1 = np.array([ [1,0,0], [0,c1,-s1], [0,s1,c1] ])
+
+    c2 = np.cos(np.deg2rad(z2))
+    s2 = np.sin(np.deg2rad(z2))
+    t2 = np.array([ [c2,-s2,0], [s2,c2,0], [0,0,1] ])
+
+    return np.matmul(t2, np.matmul(t1, t0) )
+
+
 class Dens(object):
     '''Define some density functions.
     
@@ -460,10 +487,11 @@ class Image(object):
         self.crop_size = self.rmax * 2
         self.cc = (slice(self.ny2-self.rmax[1],self.ny2+self.rmax[1]),
                    slice(self.nx2-self.rmax[0],self.nx2+self.rmax[0]))
-        y = np.arange(self.crop_size[1]) - (self.crop_size[1]-1)/2.
+        self.x = np.arange(self.crop_size[0]) - (self.crop_size[0]-1)/2.
+        self.y = np.arange(self.crop_size[1]) - (self.crop_size[1]-1)/2.
         z_crop = int(self.crop_size[2] * self.z_fact)
-        z = ( np.arange(z_crop) - (z_crop-1)/2. ) / self.z_fact
-        self.zarray, self.yarray = np.meshgrid(z, y)
+        self.z = ( np.arange(z_crop) - (z_crop-1)/2. ) / self.z_fact
+        self.zarray, self.yarray = np.meshgrid(self.z, self.y)
 
 
     def primary_beam(self, wavelength, diameter=12.0):
@@ -532,11 +560,11 @@ class Image(object):
 
         # cube method, no quicker
         if cube:
-            x = np.arange(self.crop_size[0]) + 0.5 - self.rmax[0] - x0
+            x = self.x - x0
             x3 = c0c1c2_s0s2*x + trans1[:,:,None]
             y3 = c0c1s2_s0c2*x + trans2[:,:,None]
             z3 = -c0s1*x + trans3[:,:,None]
-                
+
             # get the spherical polars
             rxy2 = x3**2 + y3**2
             rxy = np.sqrt(rxy2)
