@@ -28,6 +28,36 @@ def rotate_zxz(z1,x,z2):
 
     return np.matmul(t2, np.matmul(t1, t0) )
 
+    '''
+    the following could be used in los_image_full, but is slow
+
+        # matrix method, invert (transpose) matrix for X -> x
+        # this is much slower than doing it bit by bit below
+        t = rotate_zxz(anom, inc, pos+90.0)
+        x, y, z = np.meshgrid(self.x, self.y, self.z, indexing='ij')
+        XYZ = np.vstack( (x.reshape(-1), y.reshape(-1), z.reshape(-1)) )
+        xyz = np.matmul(t.T, XYZ)
+        x, y, z = xyz.reshape( (3,) + x.shape )
+
+        rxy2 = x**2 + y**2
+        rxy = np.sqrt(rxy2)
+        r = np.sqrt(rxy2 + z**2) * self.arcsec_pix
+        az = np.arctan2(y, x)
+        el = np.arctan2(z, rxy)
+
+        # the density, dimensions are x, y, z -> y, x, z
+        img_cube = self.emit(r, p[slice(6,6+self.n_emit_params)]) * \
+                   self.dens(r, az, el, p[6+self.n_emit_params:])
+        img_cube = np.rollaxis(img_cube, 1)
+
+        if cube:
+            return img_cube
+        else:
+            image = np.zeros((self.ny, self.nx))
+            image[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
+                  self.nx2-self.rmax[0]:self.nx2+self.rmax[0]] = np.sum(img_cube,axis=2)
+            return image
+    '''
 
 class Dens(object):
     '''Define some density functions.
@@ -536,14 +566,13 @@ class Image(object):
         x0, y0, pos, anom, inc, tot = p[:6]
         yarray = self.yarray - y0
 
-        # some geometry, angles are -ve because the
-        # rotation matrices go clockwise instead of a.c.w
+        # zyz rotation, a.c.w so use -ve angles for cube -> model
         c0 = np.cos(np.deg2rad(-pos))
         s0 = np.sin(np.deg2rad(-pos))
-        c1 = np.cos(np.deg2rad(inc))
-        s1 = np.sin(np.deg2rad(inc))
-        c2 = np.cos(np.deg2rad(-anom)+3*np.pi/2)
-        s2 = np.sin(np.deg2rad(-anom)+3*np.pi/2)
+        c1 = np.cos(np.deg2rad(-inc))
+        s1 = np.sin(np.deg2rad(-inc))
+        c2 = np.cos(np.deg2rad(-anom)+np.pi/2) # to get from N to x
+        s2 = np.sin(np.deg2rad(-anom)+np.pi/2)
         c0c1c2 = c0 * c1 * c2
         c0c1s2 = c0 * c1 * s2
         c0s1 = c0 * s1
@@ -558,7 +587,7 @@ class Image(object):
         trans2 = (-s0c1*s2 + c0*c2)*yarray + s1*s2*self.zarray
         trans3 = s0*s1*yarray + c1*self.zarray
 
-        # cube method, no quicker
+        # cube method, ~50% slower than by layers below
         if cube:
             x = self.x - x0
             x3 = c0c1c2_s0s2*x + trans1[:,:,None]
@@ -573,14 +602,12 @@ class Image(object):
             el = np.arctan2(z3,rxy)
 
             # the density, dimensions are y, z, x
-            cube = self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
-                    self.dens(r,az,el,p[6+self.n_emit_params:])
+            return self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
+                   self.dens(r,az,el,p[6+self.n_emit_params:])
 
             # if we were to put this in the image
 #            image[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
 #                  self.nx2-self.rmax[0]:self.nx2+self.rmax[0]] = np.sum(cube,axis=1)
-
-            return cube
 
         # go through slice by slice and get the flux along an x column
         # attempts to speed this up using multiprocess.Pool failed
@@ -590,7 +617,7 @@ class Image(object):
 
             for i in np.arange(self.crop_size[0]):
 
-                x = i + 0.5 - self.rmax[0] - x0
+                x = self.x[i] - x0
 
                 # x,y,z locations in original model coords
                 x3 = c0c1c2_s0s2*x + trans1
