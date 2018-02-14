@@ -34,7 +34,7 @@ def rotate_zxz(z1,x,z2):
         # matrix method, invert (transpose) matrix for X -> x
         # this is much slower than doing it bit by bit below
         t = rotate_zxz(anom, inc, pos+90.0)
-        x, y, z = np.meshgrid(self.x, self.y, self.z, indexing='ij')
+        x, y, z = np.meshgrid(self.x-x0, self.y-y0, self.z, indexing='ij')
         XYZ = np.vstack( (x.reshape(-1), y.reshape(-1), z.reshape(-1)) )
         xyz = np.matmul(t.T, XYZ)
         x, y, z = xyz.reshape( (3,) + x.shape )
@@ -472,7 +472,7 @@ class Image(object):
         
             # find model extents, zarray may be higher resolution by
             # factor z_fact, so account for this here
-            x_sum = np.sum(cube,axis=(0,1))
+            x_sum = np.sum(cube,axis=(0,2))
             xmax = np.max(
        np.append(np.where( x_sum/np.max(x_sum) > tol )[0]-self.rmax[0],
                  self.rmax[0]-np.where( x_sum/np.max(x_sum) > tol )[0])
@@ -482,7 +482,7 @@ class Image(object):
        np.append(np.where( y_sum/np.max(y_sum) > tol )[0]-self.rmax[1],
                  self.rmax[1]-np.where( y_sum/np.max(y_sum) > tol )[0])
                                )
-            z_sum = np.sum(cube,axis=(0,2))
+            z_sum = np.sum(cube,axis=(0,1))
             zmax = int( np.max(
        np.append(np.where( z_sum/np.max(z_sum) > tol )[0]-self.rmax[2],
                  self.rmax[2]-np.where( z_sum/np.max(z_sum) > tol )[0])
@@ -549,7 +549,7 @@ class Image(object):
     los_image_full_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
     los_image_p_ranges = [[-1,1], [-1,1], [-180,180],
                           [-180,180], [0.,90], [0.,10.]]
-    def los_image_full(self, p, cube=False):
+    def los_image_full(self, p, cube=False, sink=False):
         '''Return an image of a disk.
 
         Heavily 'borrows' from zodipic, this is why the rotations are in
@@ -601,13 +601,14 @@ class Image(object):
             az = np.arctan2(y3,x3)
             el = np.arctan2(z3,rxy)
 
-            # the density, dimensions are y, z, x
-            return self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
+            # the density, dimensions are y, z, x -> y, x, z
+            cube = self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
                    self.dens(r,az,el,p[6+self.n_emit_params:])
-
+            return np.rollaxis(cube, 2, 1)
+    
             # if we were to put this in the image
 #            image[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
-#                  self.nx2-self.rmax[0]:self.nx2+self.rmax[0]] = np.sum(cube,axis=1)
+#                  self.nx2-self.rmax[0]:self.nx2+self.rmax[0]] = np.sum(cube,axis=2)
 
         # go through slice by slice and get the flux along an x column
         # attempts to speed this up using multiprocess.Pool failed
@@ -664,3 +665,65 @@ class Image(object):
         '''
         return self.los_image_full(np.append([0.0,0.0,0.0,0.0],p),
                                    cube=cube)
+
+
+    def rv_cube(self, p, rv_min=-20.0, dv=1.0, n_chan=40,
+                mstar=1.0, distance=10.0):
+        '''Return a velocity cube, units of km/s.
+            
+        Parameters
+        ----------
+        p : list
+            List of parameters, as for los_image.
+        rv_min : float
+            Minimum radial velocity in km/s.
+        dv : float
+            Width of velocity channels.
+        n_chan : int
+            Number of velocity channels.
+        mstar : float
+            Mass of star in Solar masses.
+        distance : float
+            Distance to star in parsecs.
+        '''
+
+        x0, y0, pos, anom, inc, tot = p[:6]
+
+        g, msun, au = 6.67408e-11, 1.9891e30, 1.496e11
+
+        # get the density cube
+        c = self.image_full(p, cube=True)
+
+        # distances, pixel inclination, and cube
+        x, y, z = np.meshgrid(self.x-x0, self.y-y0, self.z)
+        r = np.sqrt(x*x + y*y + z*z) * self.arcsec_pix * distance * au
+
+        # get distance along major axis
+        t = np.array([[np.cos(np.deg2rad(pos)),-np.sin(np.deg2rad(pos))],
+                      [np.sin(np.deg2rad(pos)), np.cos(np.deg2rad(pos))]])
+        XY = np.vstack( (x.reshape(-1), y.reshape(-1)) )
+        xy = np.matmul(t.T, XY)
+        x, y = xy.reshape( (2,) + x.shape )
+
+        # velocities in each pixel
+        l = y * self.arcsec_pix * distance * au
+        vcirc = np.sqrt(g * msun * mstar / r**3)
+        vr = vcirc * np.sin(inc) * l / 1e3
+    
+        # the velocity cube
+        edges = rv_min + np.arange(n_chan+1) * dv
+        h = np.digitize(vr, bins=edges)
+
+        tmp_cube = np.zeros((c.shape[0], c.shape[1], n_chan))
+        for i in range(n_chan):
+            ok = h == i+1
+            if np.any(ok):
+                mask = np.array(ok, dtype=int)
+                tmp_cube[:,:,i] = np.sum(c*mask, axis=2)
+
+        # put this in the image
+        cube = np.zeros((self.ny, self.nx, n_chan))
+        cube[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
+             self.nx2-self.rmax[0]:self.nx2+self.rmax[0], :] = tmp_cube
+
+        return cube
