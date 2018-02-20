@@ -58,6 +58,14 @@ def test_image_edge_on_disk():
     im_test /= np.sum(im_test)
     assert(np.allclose(im, im_test, atol=0.03*np.max(im)))
 
+def test_image_cube():
+    sz = 200
+    p = [0,0,20,70,1,1.7,0.5,0.1]
+    d = alma.image.Image(arcsec_pix=1, dens_model='gauss_3d',
+                         image_size=(sz,sz), wavelength=1e-3)
+    d.compute_rmax(p, tol=1e-3, image_full=True)
+    d.rv_cube(p)
+
 def test_set_rmax():
     sz = 200
     rmax = 1000

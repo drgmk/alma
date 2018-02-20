@@ -2,6 +2,8 @@ from __future__ import print_function
 
 import numpy as np
 
+from . import cube
+
 def rotate_zxz(z1,x,z2):
     '''Return a rotation matrix.
         
@@ -694,7 +696,7 @@ class Image(object):
         # get the density cube
         c = self.image_full(p, cube=True)
 
-        # distances, pixel inclination, and cube
+        # cube distances
         x, y, z = np.meshgrid(self.x-x0, self.y-y0, self.z)
         r = np.sqrt(x*x + y*y + z*z) * self.arcsec_pix * distance * au
 
@@ -705,11 +707,9 @@ class Image(object):
         xy = np.matmul(t.T, XY)
         x, y = xy.reshape( (2,) + x.shape )
 
-        # velocities in each pixel
-        l = y * self.arcsec_pix * distance * au
-        vcirc = np.sqrt(g * msun * mstar / r**3)
-        vr = vcirc * np.sin(inc) * l / 1e3
-    
+        # velocities in each pixel for this inclination
+        vr = cube.v_rad(y * self.arcsec_pix * distance * au,  r, inc, mstar)
+
         # the velocity cube
         edges = rv_min + np.arange(n_chan+1) * dv
         h = np.digitize(vr, bins=edges)
@@ -722,8 +722,8 @@ class Image(object):
                 tmp_cube[:,:,i] = np.sum(c*mask, axis=2)
 
         # put this in the image
-        cube = np.zeros((self.ny, self.nx, n_chan))
-        cube[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
-             self.nx2-self.rmax[0]:self.nx2+self.rmax[0], :] = tmp_cube
+        c = np.zeros((self.ny, self.nx, n_chan))
+        c[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
+          self.nx2-self.rmax[0]:self.nx2+self.rmax[0], :] = tmp_cube
 
-        return cube
+        return c
