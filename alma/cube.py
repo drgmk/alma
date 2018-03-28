@@ -1,7 +1,4 @@
 import numpy as np
-from astropy.io import fits
-from astropy import wcs
-
 
 def v_rad(x,r,inc,mstar):
     '''Return radial velocity in km/s.

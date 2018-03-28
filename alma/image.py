@@ -111,9 +111,12 @@ class Dens(object):
             'gauss_3d':{'func':self.gauss_3d,
                         'params':self.gauss_3d_params,
                         'p_ranges':self.gauss_3d_p_ranges},
+            'gauss_ecc_3d':{'func':self.gauss_ecc_3d,
+                            'params':self.gauss_ecc_3d_params,
+                            'p_ranges':self.gauss_ecc_3d_p_ranges},
             'gauss_2d':{'func':self.gauss_2d,
                         'params':self.gauss_2d_params,
-                        'p_ranges':self.gauss_3d_p_ranges},
+                        'p_ranges':self.gauss_2d_p_ranges},
             'gauss2_3d':{'func':self.gauss2_3d,
                         'params':self.gauss2_3d_params,
                         'p_ranges':self.gauss2_3d_p_ranges},
@@ -197,6 +200,16 @@ class Dens(object):
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
                     np.exp( -0.5*(el/p[2])**2 ) * \
                     (az+2*np.pi)%(2*np.pi)
+
+    # Gaussian eccentric ring
+    gauss_ecc_3d_params = ['$r_0$','$e$','$\sigma_r$','$\sigma_h$']
+    gauss_ecc_3d_p_ranges = [rr,[0,1],dr,dh]
+    def gauss_ecc_3d(self,r,az,el,p):
+        '''Gaussian eccentric torus.'''
+        r_ecc = p[0] * ( 1 - p[1]**2 ) / ( 1 + p[1]*np.cos(az) )
+        return np.exp( -0.5*( (r-r_ecc)/p[2] )**2 ) * \
+               np.exp( -0.5*( el/p[3] )**2 ) * \
+               (1 - p[1]*np.cos(az))
 
     # Power law torus and parameters
     power_3d_params = ['$r_0$','$p_{in}$','$p_{out}$','$\sigma_h$']
@@ -573,8 +586,8 @@ class Image(object):
         s0 = np.sin(np.deg2rad(-pos))
         c1 = np.cos(np.deg2rad(-inc))
         s1 = np.sin(np.deg2rad(-inc))
-        c2 = np.cos(np.deg2rad(-anom)+np.pi/2) # to get from N to x
-        s2 = np.sin(np.deg2rad(-anom)+np.pi/2)
+        c2 = np.cos(np.deg2rad(-anom)-np.pi/2) # to get from N to x
+        s2 = np.sin(np.deg2rad(-anom)-np.pi/2)
         c0c1c2 = c0 * c1 * c2
         c0c1s2 = c0 * c1 * s2
         c0s1 = c0 * s1
