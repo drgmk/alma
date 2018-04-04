@@ -117,6 +117,9 @@ class Dens(object):
             'gauss_2d':{'func':self.gauss_2d,
                         'params':self.gauss_2d_params,
                         'p_ranges':self.gauss_2d_p_ranges},
+            'gauss_2d_opthk':{'func':self.gauss_2d_opthk,
+                              'params':self.gauss_2d_opthk_params,
+                              'p_ranges':self.gauss_2d_opthk_p_ranges},
             'gauss2_3d':{'func':self.gauss2_3d,
                         'params':self.gauss2_3d_params,
                         'p_ranges':self.gauss2_3d_p_ranges},
@@ -173,6 +176,14 @@ class Dens(object):
     def gauss_2d(self, r, az, el, p):
         '''Gaussian torus with fixed scale height.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
+                np.exp( -0.5*(el/self.gaussian_scale_height)**2 )
+
+    # Gaussian torus with fixed scale height and optical depth
+    gauss_2d_opthk_params = ['$r_0$','$\sigma_r$','$\\tau$']
+    gauss_2d_opthk_p_ranges = [rr,dr,[0,50]]
+    def gauss_2d_opthk(self, r, az, el, p):
+        '''Gaussian torus with fixed scale height.'''
+        return (1 - np.exp( -p[2]*np.exp( -0.5*((r-p[0])/p[1])**2 ) )) * \
                 np.exp( -0.5*(el/self.gaussian_scale_height)**2 )
 
     # Gaussian in/out torus and parameters
@@ -315,10 +326,11 @@ class Emit(object):
 class Image(object):
     '''Image generation.'''
 
-    def __init__(self,image_size=None, arcsec_pix=None, rmax_arcsec=None,
+    def __init__(self,image_size=None, arcsec_pix=None,
+                 rmax_arcsec=None, rmax_off=(0,0),
                  model='los_image_axisym', emit_model='blackbody',
                  dens_model='gauss_3d', dens_args={},
-                 wavelength=None, no_primary_beam=False,
+                 wavelength=None, pb_diameter=12.0,
                  z_fact=1, verbose=True):
         '''Get an object to make images.
 
@@ -330,6 +342,10 @@ class Image(object):
             Pixel scale of output image.
         rmax_arcsec: float
             Maximum x,y,z extent of model, for speed.
+        rmax_off : tuple, optional
+            Offset for rmax.
+        zfact : int, optional
+            Factor to increase z resolution by.
         model: str
             Integration model to use; includes anomaly or not
         dens_model: str
@@ -340,6 +356,8 @@ class Image(object):
             Emission model to use. Takes no parameters
         wavelength : float
             Wavelength of observations in m, used to create primary beam.
+        pb_diameter : float, optional
+            Dish diameter to calculate primary beam, in m.
         '''
 
         self.image_size = image_size
@@ -356,19 +374,22 @@ class Image(object):
         self.nx2 = self.nx // 2
         self.ny2 = self.ny // 2
         if rmax_arcsec is None:
-            self.rmax = np.array([self.nx2,self.ny2,self.ny2])
-            self.set_rmax(self.rmax)
+            rmax = np.array([self.nx2,self.ny2,
+                             np.max([self.nx2,self.ny2])])
+            self.set_rmax(rmax)
         else:
-            self.set_rmax(np.tile(rmax_arcsec/arcsec_pix,3))
+            self.set_rmax(np.tile(rmax_arcsec/arcsec_pix,3),
+                          x0=rmax_off[0], y0=rmax_off[1])
 
         # set the image model
         self.select(model)
         
         # generate the primary beam
-        if no_primary_beam:
+        if self.wavelength is None:
             self.pb = None
+            self.pb_galario = None
         else:
-            self.primary_beam(self.wavelength)
+            self.set_primary_beam(self.wavelength)
 
         # set the density distribution function
         d = Dens(model=dens_model,**dens_args)
@@ -410,38 +431,46 @@ class Image(object):
         '''
 
         models = {
-            'los_image':{'fit_func':self.los_image,
-                         'full_func':self.los_image_full,
-                         'params':self.los_image_full_params,
+            'los_image':{'fit_func':self.los_image_galario,
+                         'img_func':self.los_image,
+                         'cutout_func':self.los_image_cutout,
+                         'cube':self.los_image_cube,
+                         'rv_cube':self.rv_cube_,
+                         'params':self.los_image_params,
                          'p_ranges':self.los_image_p_ranges
                         },
-            'los_image_axisym':{'fit_func':self.los_image_axisym,
-                                'full_func':self.los_image_axisym_full,
+            'los_image_axisym':{'fit_func':self.los_image_galario_axisym,
+                                'img_func':self.los_image_axisym,
+                                'cutout_func':self.los_image_cutout_axisym,
+                                'cube':self.los_image_cube_axisym,
+                                'rv_cube':self.rv_cube_axisym,
                                 'params':self.los_image_axisym_params,
                                 'p_ranges':self.los_image_axisym_p_ranges
                         }
                   }
 
-        self.image = models[model]['fit_func']
-        self.image_full = models[model]['full_func']
+        self.image = models[model]['img_func']
+        self.image_galario = models[model]['fit_func']
+        self.image_cutout = models[model]['cutout_func']
+        self.cube = models[model]['cube']
+        self.rv_cube = models[model]['rv_cube']
         self.image_params = models[model]['params']
         self.image_p_ranges = models[model]['p_ranges']
         self.n_image_params = len(self.image_params)
 
 
     def compute_rmax(self, p, tol=1e-5, expand=10,
-                     image_full=False, radial_only=False):
+                     radial_only=False, zero_node=False):
         '''Figure out model extent to make image generation quicker.
-        
-        The aim is for non-rotated/shifted image generation to be sped
-        up, so self.image is the default. If rmax is the image size (as
-        set by default if rmax_arcsec isn't given at istantiation) then
-        the radial method is used first.
         
         This routine may be setting the extent used for an entire mcmc
         run, so some wiggle room should be allowed for so that the model
         doesn't move outside the space derived here.
         
+        .. todo: check r < nx2 here
+        
+        .. todo: allow z > image size
+
         Parameters
         ----------
         p : list or tuple
@@ -453,68 +482,71 @@ class Image(object):
             relevant axis.
         expand : int, optional
             Number of pixels to pad the image by.
-        image_full : bool, optional
-            Use the full (rotated/shifted) image to compute limits.
         radial_only : bool, optional
             Do just a radial calculation of the limits.
+        zero_node : bool, optional
+            Set ascending node to zero, for galario modelling.
         '''
+    
+        if zero_node:
+            p_ = np.append(np.append(p[:2],0), p[3:])
+        else:
+            p_ = p
     
         # Work inwards, stopping when density becomes non-zero. Density
         # model is assumed to peak near 1 so absolute tolerance is used.
-        if radial_only or self.rmax[0] == self.nx2:
-            
-            def find_radial():
-                for r in np.arange(np.max([self.nx2,self.ny2]),1,-1):
-                    for az in np.arange(0,360,30):
-                        for el in np.arange(-90,90,15):
-                            if self.dens(r*self.arcsec_pix,az,el,
-                                         p[self.n_image_params:]) > tol:
-                                self.set_rmax(np.tile(r + expand,3))
-                                print('radial r_max: {} pix'.\
-                                      format(self.rmax[0]))
-                                return None
-        
-            find_radial()
+        def find_radial():
+            for r in np.arange(np.max([self.nx2,self.ny2]),1,-1):
+                for az in np.arange(0,360,30):
+                    for el in np.arange(-90,90,15):
+                        if self.dens(r*self.arcsec_pix,az,el,
+                                     p_[self.n_image_params:]) > tol:
+                            self.set_rmax(np.tile(r + expand,3),
+                                          x0=p[0], y0=p[1])
+                            print('radial r_max: {} pix at {},{}'.\
+                                  format(r,p[0]/self.arcsec_pix,
+                                         p[1]/self.arcsec_pix))
+                            return None
+    
+        find_radial()
 
-        # get cube of disk, compute limits from that. for a full image,
-        # expand the limits to the max allowed first
+        # get centered cutout cube of disk and compute limits from that
         if not radial_only:
-            if image_full:
-                self.set_rmax(np.array([np.max(self.rmax)]))
-                cube = self.image_full(p, cube=True)
-            else:
-                cube = self.image(p[3:], cube=True)
+
+            cube = self.image_cutout(p_, cube=True)
+            if np.sum(cube) == 0:
+                raise ValueError('empty cube, check parameters')
         
             # find model extents, zarray may be higher resolution by
             # factor z_fact, so account for this here
             x_sum = np.sum(cube,axis=(0,2))
-            xmax = np.max(
-       np.append(np.where( x_sum/np.max(x_sum) > tol )[0]-self.rmax[0],
-                 self.rmax[0]-np.where( x_sum/np.max(x_sum) > tol )[0])
-                               )
+            xmax = np.max( np.abs( np.where( x_sum/np.max(x_sum) > tol )[0] \
+                                   - len(x_sum)//2 ) )
             y_sum = np.sum(cube,axis=(1,2))
-            ymax = np.max(
-       np.append(np.where( y_sum/np.max(y_sum) > tol )[0]-self.rmax[1],
-                 self.rmax[1]-np.where( y_sum/np.max(y_sum) > tol )[0])
-                               )
+            ymax = np.max(  np.abs( np.where( y_sum/np.max(y_sum) > tol )[0] \
+                                    - len(y_sum)//2 ) )
             z_sum = np.sum(cube,axis=(0,1))
-            zmax = int( np.max(
-       np.append(np.where( z_sum/np.max(z_sum) > tol )[0]-self.rmax[2],
-                 self.rmax[2]-np.where( z_sum/np.max(z_sum) > tol )[0])
-                               ) / self.z_fact )
+            zmax = int( np.max( np.where( z_sum/np.max(z_sum) > tol )[0] \
+                                / self.z_fact ) )
             print('model x,y,z extent {}, {}, {}'.format(xmax,ymax,zmax))
 
             rmax = ( np.array([xmax, ymax, zmax]) + expand ).astype(int)
-            self.set_rmax(rmax)
+            self.set_rmax(rmax, x0=p[0], y0=p[1])
 
 
-    def set_rmax(self, rmax):
+    def set_rmax(self, rmax, x0=0, y0=0):
         '''Set rmax and associated things.
-            
+        
+        Calculate model limits in full image, and set up some arrays.
+        
         Parameters
         ----------
         rmax : np.ndarray
             One or three integers giving the pixel extent of the model.
+        x0 : int
+            shift in arcsec (when models are offset in image).
+        y0 : int
+            shift in arcsec (when models are offset in image).
         '''
 
         # check input
@@ -523,23 +555,42 @@ class Image(object):
         if len(rmax) == 1:
             rmax = np.tile(rmax,3)
 
-        # restrict to full image size, z can go to any depth
-        if rmax[0] > self.nx2: rmax[0] = self.nx2
-        if rmax[1] > self.ny2: rmax[1] = self.ny2
+        # rmax is two-sided as cutout can be off center
+        x0_pix = int(round(x0/self.arcsec_pix))
+        y0_pix = int(round(y0/self.arcsec_pix))
+        self.x0_pix = int(round(x0_pix))
+        self.y0_pix = int(round(y0_pix))
+        self.x0_arcsec = x0_pix * self.arcsec_pix
+        self.y0_arcsec = y0_pix * self.arcsec_pix
+        off = np.array([self.x0_pix, self.y0_pix, 0])
+        self.rmax = np.array([off - rmax.astype(int),
+                              off + rmax.astype(int)]).T
 
-        self.rmax = rmax.astype(int)
-        self.rmax_arcsec = self.rmax * self.arcsec_pix
-        self.crop_size = self.rmax * 2
-        self.cc = (slice(self.ny2-self.rmax[1],self.ny2+self.rmax[1]),
-                   slice(self.nx2-self.rmax[0],self.nx2+self.rmax[0]))
+        # check image is not cropped
+        if np.sum([self.rmax[0,0] < -self.nx2, self.rmax[0,1] > self.nx2,
+                   self.rmax[1,0] < -self.ny2, self.rmax[1,1] > self.ny2]):
+            raise ValueError('crop outside image, make larger or pad less')
+
+        self.cc_gal = (slice(self.ny2-rmax[1],self.ny2+rmax[1]),
+                       slice(self.nx2-rmax[0],self.nx2+rmax[0]))
+        self.cc = (slice(self.ny2+self.rmax[1,0],self.ny2+self.rmax[1,1]),
+                   slice(self.nx2+self.rmax[0,0],self.nx2+self.rmax[0,1]))
+
+        # these arrays are centered on the crop, so not offset
+        self.crop_size = np.diff(self.rmax).T[0]
         self.x = np.arange(self.crop_size[0]) - (self.crop_size[0]-1)/2.
         self.y = np.arange(self.crop_size[1]) - (self.crop_size[1]-1)/2.
+
         z_crop = int(self.crop_size[2] * self.z_fact)
         self.z = ( np.arange(z_crop) - (z_crop-1)/2. ) / self.z_fact
         self.zarray, self.yarray = np.meshgrid(self.z, self.y)
+            
+        # recompute primary beam, to include shift
+        if self.wavelength is not None:
+            self.set_primary_beam(self.wavelength, x0=x0, y0=y0)
 
 
-    def primary_beam(self, wavelength, diameter=12.0):
+    def set_primary_beam(self, wavelength, diameter=12.0, x0=0, y0=0):
         '''Create an image of the primary beam.
             
         Use Gaussian of FWHM 1.13 lambda/D, based on this:
@@ -550,36 +601,47 @@ class Image(object):
         wavelength : float
             Wavelength of observation in m.
         diameter : float, optional
-            Single disk diameter, default is 12m (i.e. ALMA).
+            Single dish diameter, default is 12m (i.e. ALMA).
+        x0 : int
+            shift in arcsec (when models are offset in image).
+        y0 : int
+            shift in arcsec (when models are offset in image).
         '''
         
+        # primary beam for normal images
         x = np.arange(self.nx) - (self.nx-1)/2.
         y = np.arange(self.ny) - (self.ny-1)/2.
         xx,yy = np.meshgrid(x,y)
         r = np.sqrt(xx**2 + yy**2) * self.rad_pix
         
         self.pb = np.exp(-0.5 * ( r / (1.13*wavelength/diameter/2.35) )**2 )
+        
+        # same again for galario images
+        x = np.arange(self.nx) - (self.nx-1)/2. + x0 / self.arcsec_pix
+        y = np.arange(self.ny) - (self.ny-1)/2. + y0 / self.arcsec_pix
+        xx,yy = np.meshgrid(x,y)
+        r = np.sqrt(xx**2 + yy**2) * self.rad_pix
+        
+        self.pb_galario = np.exp(-0.5 * ( r / (1.13*wavelength/diameter/2.35) )**2 )
     
 
-    los_image_full_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
-    los_image_p_ranges = [[-1,1], [-1,1], [-180,180],
-                          [-180,180], [0.,90], [0.,10.]]
-    def los_image_full(self, p, cube=False, sink=False):
-        '''Return an image of a disk.
+    def los_image_cutout_(self, p, cube=False):
+        '''Return a cutout image of a disk.
 
-        Heavily 'borrows' from zodipic, this is why the rotations are in
-        weird directions...
+        This is ultimately based on the zodipic code.
         
         Parameters
         ----------
         p : list
             List of parameters, x0, y0, pos, anom, inc, tot, + emit/dens.
+            Distances are in arcsec and angles in degrees.
         cube : bool, optional
-            Return image cube (y,z,x) for use elsewhere.
+            Return cutout image cube (y,z,x) for use elsewhere.
         '''
         
         x0, y0, pos, anom, inc, tot = p[:6]
-        yarray = self.yarray - y0
+
+        yarray = self.yarray - y0 / self.arcsec_pix
 
         # zyz rotation, a.c.w so use -ve angles for cube -> model
         c0 = np.cos(np.deg2rad(-pos))
@@ -604,7 +666,7 @@ class Image(object):
 
         # cube method, ~50% slower than by layers below
         if cube:
-            x = self.x - x0
+            x = self.x - x0 / self.arcsec_pix
             x3 = c0c1c2_s0s2*x + trans1[:,:,None]
             y3 = c0c1s2_s0c2*x + trans2[:,:,None]
             z3 = -c0s1*x + trans3[:,:,None]
@@ -619,21 +681,17 @@ class Image(object):
             # the density, dimensions are y, z, x -> y, x, z
             cube = self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
                    self.dens(r,az,el,p[6+self.n_emit_params:])
-            return np.rollaxis(cube, 2, 1)
+            return tot * np.rollaxis(cube, 2, 1) / np.sum(cube)
     
-            # if we were to put this in the image
-#            image[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
-#                  self.nx2-self.rmax[0]:self.nx2+self.rmax[0]] = np.sum(cube,axis=2)
-
         # go through slice by slice and get the flux along an x column
         # attempts to speed this up using multiprocess.Pool failed
         else:
 
-            image = np.zeros((self.ny, self.nx))
+            image = np.zeros((self.crop_size[1],self.crop_size[0]))
 
             for i in np.arange(self.crop_size[0]):
 
-                x = self.x[i] - x0
+                x = self.x[i] - x0 / self.arcsec_pix
 
                 # x,y,z locations in original model coords
                 x3 = c0c1c2_s0s2*x + trans1
@@ -653,37 +711,73 @@ class Image(object):
                         self.dens(r,az,el,p[6+self.n_emit_params:])
 
                 # put this in the image
-                image[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
-                      self.nx2-self.rmax[0]+i] = np.sum(layer,axis=1)
+                image[:,i] = np.sum(layer,axis=1)
 
         return tot * image / np.sum(image)
 
 
-    def los_image(self, p, cube=False):
-        '''Version of los_image_full, no x/y offset, postion angle.'''
-        return self.los_image_full(np.append([0.0,0.0,0.0],p),
-                                   cube=cube)
+    def los_image_cutout(self, p, cube=False):
+        '''Version of los_image_cutout_.
+            
+        All calls come through here so this is the only routine where
+        the cutout offset is subtracted.
+        '''
+        return self.los_image_cutout_(np.append([p[0]-self.x0_arcsec,
+                                                p[1]-self.y0_arcsec],
+                                               p[2:]), cube=cube)
 
+    def los_image_cutout_axisym(self, p, cube=False):
+        return self.los_image_cutout(np.append(p[:3],np.append(0.0,p[3:])),
+                                               cube=cube)
+
+    los_image_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
+    los_image_p_ranges = [[-1,1], [-1,1], [-180,180],
+                          [-180,180], [0.,90], [0.,10.]]
+    def los_image(self, p):
+        '''Version of los_image, full parameters'''
+        img = self.los_image_cutout(p)
+        image = np.zeros((self.ny, self.nx))
+        image[self.ny2+self.rmax[1,0]:self.ny2+self.rmax[1,1],
+              self.nx2+self.rmax[0,0]:self.nx2+self.rmax[0,1]] = img
+        return image
 
     los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
     los_image_axisym_p_ranges = [[-1,1], [-1,1],
                                  [-180,180], [0.,90], [0.,10.]]
-    def los_image_axisym_full(self, p, cube=False):
-        '''Version of los_image_full, no anomaly dependence in dens.'''
-        return self.los_image_full(np.append(p[:3],np.append(0.0,p[3:])),
-                                   cube=cube)
+    def los_image_axisym(self, p):
+        '''Version of los_image, no anomaly dependence in dens.'''
+        return self.los_image(np.append(p[:3],np.append(0.0,p[3:])))
 
+    def los_image_galario(self, p):
+        '''Version of los_image for galario, no x/y offset, postion angle.'''
+        img = self.los_image_cutout_(np.append([0.0,0.0,0.0],p))
+        image = np.zeros((self.ny, self.nx))
+        dx = np.diff(self.rmax[0])[0]
+        dy = np.diff(self.rmax[1])[0]
+        image[self.ny2-dy//2:self.ny2+dy//2,
+              self.nx2-dx//2:self.nx2+dx//2] = img
+        return image
 
-    def los_image_axisym(self, p, cube=False):
-        '''Version of los_image_full, no x/y offset, postion
-        angle, or anomaly dependence in dens.
+    def los_image_galario_axisym(self, p):
+        '''Version of los_image for galario, no x/y offset, postion
+        angle, or anomaly dependence.
         '''
-        return self.los_image_full(np.append([0.0,0.0,0.0,0.0],p),
-                                   cube=cube)
+        return self.los_image_galario(np.append([0.0],p))
+
+    def los_image_cube(self, p):
+        '''Version of los_image to return the cube.'''
+        img = self.los_image_cutout(p, cube=True)
+        c = np.zeros((self.ny, self.nx, img.shape[2]))
+        c[self.ny2+self.rmax[1,0]:self.ny2+self.rmax[1,1],
+          self.nx2+self.rmax[0,0]:self.nx2+self.rmax[0,1], :] = img
+        return c
+
+    def los_image_cube_axisym(self, p):
+        '''Version of los_image to return the cube.'''
+        return self.los_image_cube(np.append(p[:3],np.append(0.0,p[3:])))
 
 
-    def rv_cube(self, p, rv_min=-20.0, dv=1.0, n_chan=40,
-                mstar=1.0, distance=10.0):
+    def rv_cube_(self, p, rv_min, dv, n_chan, mstar, distance, v_sys=0.0):
         '''Return a velocity cube, units of km/s.
             
         Parameters
@@ -691,7 +785,7 @@ class Image(object):
         p : list
             List of parameters, as for los_image.
         rv_min : float
-            Minimum radial velocity in km/s.
+            Minimum radial velocity in km/s (lower edge of first bin).
         dv : float
             Width of velocity channels.
         n_chan : int
@@ -700,17 +794,20 @@ class Image(object):
             Mass of star in Solar masses.
         distance : float
             Distance to star in parsecs.
+        v_sys : float, optional
+         Systemic velocity, in km/s.
         '''
 
         x0, y0, pos, anom, inc, tot = p[:6]
 
-        g, msun, au = 6.67408e-11, 1.9891e30, 1.496e11
+        au = 1.496e11
 
         # get the density cube
-        c = self.image_full(p, cube=True)
+        c = self.los_image_cutout(p, cube=True)
 
         # cube distances
-        x, y, z = np.meshgrid(self.x-x0, self.y-y0, self.z)
+        x, y, z = np.meshgrid(self.x-x0/self.arcsec_pix,
+                              self.y-y0/self.arcsec_pix, self.z)
         r = np.sqrt(x*x + y*y + z*z) * self.arcsec_pix * distance * au
 
         # get distance along major axis
@@ -721,7 +818,8 @@ class Image(object):
         x, y = xy.reshape( (2,) + x.shape )
 
         # velocities in each pixel for this inclination
-        vr = cube.v_rad(y * self.arcsec_pix * distance * au,  r, inc, mstar)
+        vr = cube.v_rad(y * self.arcsec_pix * distance * au,
+                        r, inc, mstar) + v_sys
 
         # the velocity cube
         edges = rv_min + np.arange(n_chan+1) * dv
@@ -735,8 +833,15 @@ class Image(object):
                 tmp_cube[:,:,i] = np.sum(c*mask, axis=2)
 
         # put this in the image
-        c = np.zeros((self.ny, self.nx, n_chan))
-        c[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
-          self.nx2-self.rmax[0]:self.nx2+self.rmax[0], :] = tmp_cube
+        c_out = np.zeros((self.ny, self.nx, n_chan))
+        c_out[self.ny2+self.rmax[1,0]:self.ny2+self.rmax[1,1],
+              self.nx2+self.rmax[0,0]:self.nx2+self.rmax[0,1], :] = tmp_cube
 
-        return c
+        return c_out
+                
+
+    def rv_cube_axisym(self, p, rv_min, dv, n_chan, mstar, distance, v_sys=0.0):
+        '''Version of rv_cube for axisymmetric disks.'''
+        return self.rv_cube_(np.append(p[:3],np.append(0.0,p[3:])),
+                             rv_min, dv, n_chan, mstar, distance,
+                             v_sys=v_sys)

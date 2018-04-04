@@ -5,16 +5,16 @@ def v_rad(x,r,inc,mstar):
     
     Parameters
     ----------
-    l : float or ndarray
+    x : float or ndarray
         Sky distance to pixel along disk major axis.
     r : float or ndarray
-        Distance to pixel.
+        Distance to pixel in m.
     inc : float
         Inclination of disk in degrees.
     mstar : float
         Stellar mass in Solar masses.
     '''
-    g, msun, au = 6.67408e-11, 1.9891e30, 1.496e11
+    g, msun = 6.67408e-11, 1.9891e30
     vcirc = np.sqrt(g * msun * mstar / r**3)
     return vcirc * np.sin(np.deg2rad(inc)) * x / 1e3
 
