@@ -68,6 +68,7 @@ class Dens(object):
     '''
 
     def __init__(self,model='gauss_3d',gaussian_scale_height=0.05,
+                 box_half_height=0.05,
                  func=None, params=None, p_ranges=None):
         '''Get an object to do density.
         
@@ -77,6 +78,8 @@ class Dens(object):
             Name of model to use.
         gaussian_scale_height: float
             Scale height to use for fixed-height models.
+        box_half_height: float
+            Height to use for fixed-height models.
         func : function
             Density fuction to use.
         params : list of str
@@ -85,6 +88,7 @@ class Dens(object):
             Allowed ranges of given parameters.
         '''
         self.gaussian_scale_height = gaussian_scale_height
+        self.box_half_height = box_half_height
         self.select(model=model, func=func, params=params,
                     p_ranges=p_ranges)
 
@@ -132,6 +136,9 @@ class Dens(object):
             'power_top_3d':{'func':self.power_top_3d,
                         'params':self.power_top_3d_params,
                         'p_ranges':self.power_top_3d_p_ranges},
+            'box_2d':{'func':self.box_2d,
+                        'params':self.box_2d_params,
+                        'p_ranges':self.box_2d_p_ranges},
             'box_3d':{'func':self.box_3d,
                         'params':self.box_3d_params,
                         'p_ranges':self.box_3d_p_ranges},
@@ -243,10 +250,24 @@ class Dens(object):
                   np.exp( -0.5*(el/p[4])**2 )
 
     # Box torus and parameters
+    box_2d_params = ['$r_0$','$\delta_r$']
+    box_2d_p_ranges = [rr,dr]
+    def box_2d(self,r,az,el,p):
+        '''Box torus in 2d. assume r,az,el are vectors.'''
+        in_i = (r > p[0]-p[1]/2.) & (r < p[0]+p[1]/2.) & \
+                   (np.abs(el) <= self.box_half_height)
+        if isinstance(in_i,(bool,np.bool_)):
+            return float(in_i)
+        else:
+            dens = np.zeros(r.shape)
+            dens[in_i] = 1.0
+            return dens
+
+    # Box torus and parameters
     box_3d_params = ['$r_0$','$\delta_r$','$\delta_h$']
     box_3d_p_ranges = [rr,dr,dh]
     def box_3d(self,r,az,el,p):
-        '''Box torus. assume r,az,el are vectors.'''
+        '''Box torus in 3d. assume r,az,el are vectors.'''
         in_i = (r > p[0]-p[1]/2.) & (r < p[0]+p[1]/2.) & \
                    (np.abs(el) <= p[2]/2)
         if isinstance(in_i,(bool,np.bool_)):
@@ -292,7 +313,10 @@ class Emit(object):
         models = {
             'blackbody':{'func':self.blackbody,
                          'params':self.blackbody_params,
-                         'p_ranges':self.blackbody_p_ranges}
+                         'p_ranges':self.blackbody_p_ranges},
+            'constant':{'func':self.constant,
+                        'params':self.constant_params,
+                        'p_ranges':self.constant_p_ranges}
                   }
 
         if list_models:
@@ -321,6 +345,13 @@ class Emit(object):
     def blackbody(self, r, p):
         '''Blackbody.'''
         return 1.0/r**0.5
+
+    # constant temp, no knobs, p is a dummy
+    constant_params = []
+    constant_p_ranges = []
+    def constant(self, r, p):
+        '''Constant.'''
+        return 1.0
 
 
 class Image(object):
@@ -732,7 +763,7 @@ class Image(object):
 
     los_image_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
     los_image_p_ranges = [[-1,1], [-1,1], [-180,180],
-                          [-180,180], [0.,90], [0.,10.]]
+                          [-180,180], [0.,90], [0.,np.inf]]
     def los_image(self, p):
         '''Version of los_image, full parameters'''
         img = self.los_image_cutout(p)
@@ -743,7 +774,7 @@ class Image(object):
 
     los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
     los_image_axisym_p_ranges = [[-1,1], [-1,1],
-                                 [-180,180], [0.,90], [0.,10.]]
+                                 [-180,180], [0.,90], [0.,np.inf]]
     def los_image_axisym(self, p):
         '''Version of los_image, no anomaly dependence in dens.'''
         return self.los_image(np.append(p[:3],np.append(0.0,p[3:])))
