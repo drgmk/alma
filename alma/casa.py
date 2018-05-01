@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import uvplot.io
 
 '''CASA functions related to fitting models to ALMA data.'''
 
@@ -40,11 +41,14 @@ def residual(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
     data = tb.getcol(datacolumn)
     nchan = data.shape[1]
     nrow = data.shape[2]
+    print('Opened ms file with {} channels, {} rows'.format(nchan,nrow))
 
     # open the model visibilities, which is a vector nchan x nrow long
     # of complex visibilities, and each row is tiled nchan times.
     # reshape for subtraction to [nchan,nrow]
-    vis_mod = np.load(vis_model).reshape(nchan, nrow)
+    vis_mod = np.load(vis_model)
+    print('Opened model file with shape {}'.format(vis_mod.shape))
+    vis_mod = vis_mod.reshape(nchan, nrow)
 
     # subtract model from each polarisation
     sub = data - vis_mod
@@ -102,3 +106,23 @@ def model_ms(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
     # put the data in the table and close
     tb.putcol(datacolumn, vis_mod)
     tb.close()
+
+
+def export_multi_uv_tables(ms, channels, file, tb, split):
+    '''Export multiple uv tables for multi-channel data.
+    
+    Assume ms already has one spw (=0), and that all we need to do
+    is select the channels.
+    
+    While it appears OK, this routine fails to run in casa. It works
+    when pasted out and run in an interactive shell.
+    '''
+
+    print('This call will probably fail, paste out the code and run it.')
+    for i in np.arange(channels[0], channels[1]+1):
+        split_args = {'vis':ms,'datacolumn':'data','keepflags':False,
+                      'timebin':'20s','spw':'0:{}'.format(i)}
+        print('exporting ch {} with args:{}'.format(i,split_args))
+        uvplot.io.export_uvtable(file+'-ch{}.txt'.format(i), tb, vis=ms,
+                                 split=split,datacolumn='DATA',
+                                 split_args=split_args,verbose=True)
