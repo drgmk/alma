@@ -3,6 +3,9 @@ import numpy as np
 def v_rad(x,r,inc,mstar):
     '''Return radial velocity in an inclined disk in km/s.
     
+    Convention is that inclination in 0 to 90deg for +ve x gives a
+    negative velocity, which is towards us.
+
     Parameters
     ----------
     x : float or ndarray
@@ -16,13 +19,16 @@ def v_rad(x,r,inc,mstar):
     '''
     g, msun = 6.67408e-11, 1.9891e30
     vcirc = np.sqrt(g * msun * mstar / r**3)
-    return vcirc * np.sin(np.deg2rad(inc)) * x / 1e3
+    return -vcirc * np.sin(np.deg2rad(inc)) * x / 1e3
 
 
 def stack_vel(c, inclination=None, pa=None, mstar=None, x0=0.0, y0=0.0,
               arcsec_pix=None, distance=None, vel_pix=None):
     '''Stack sky/velocity cube for a given inclination.
     
+    Assume cube velocity dimension is increasing in rv, so a negative
+    velocity requires a positive shift to correct.
+
     .. todo: implement mask keyword
     
     Parameters
@@ -72,7 +78,7 @@ def stack_vel(c, inclination=None, pa=None, mstar=None, x0=0.0, y0=0.0,
 
     # shift cube by rolling each sky pixel
     c_shift = np.zeros(sh)
-    shift = np.round(vr / vel_pix).astype(int)
+    shift = -np.round(vr / vel_pix).astype(int)
     for i in range(sh[0]):
         for j in range(sh[1]):
             c_shift[i,j,:] = np.roll(c[i,j,:], shift[i,j])
