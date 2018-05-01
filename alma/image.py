@@ -102,7 +102,7 @@ class Dens(object):
         model : str
             Name of model to use, one of list returned by list_models.
         func : function
-            Custom function to use, takes r, az, el, par.
+            Custom function to use, takes r, az (rad), el (rad), par.
         params : list
             List of parameter names associated with custom function.
         p_ranges : list of two-element lists
@@ -166,7 +166,7 @@ class Dens(object):
     # set the allowed ranges for radius, width, height, power exponent
     rr = [0.,500.]
     dr = [0.001,10.]
-    dh = [0.01,10.]
+    dh = [0.01,1.] # radians
     pr = [1.,50.]
 
     # Gaussian torus and parameters
@@ -220,13 +220,15 @@ class Dens(object):
                     (az+2*np.pi)%(2*np.pi)
 
     # Gaussian eccentric ring
-    gauss_ecc_3d_params = ['$r_0$','$e$','$\sigma_r$','$\sigma_h$']
-    gauss_ecc_3d_p_ranges = [rr,[0,1],dr,dh]
+    gauss_ecc_3d_params = ['$r_0$','$e$','$\sigma_{peri}$',
+                           '$\sigma_{apo}/\sigma_{peri}$','$\sigma_h$']
+    gauss_ecc_3d_p_ranges = [rr,[0,1],dr,[1,10],dh]
     def gauss_ecc_3d(self,r,az,el,p):
-        '''Gaussian eccentric torus.'''
+        '''Gaussian eccentric torus, variable width.'''
         r_ecc = p[0] * ( 1 - p[1]**2 ) / ( 1 + p[1]*np.cos(az) )
-        return np.exp( -0.5*( (r-r_ecc)/p[2] )**2 ) * \
-               np.exp( -0.5*( el/p[3] )**2 ) * \
+        w_ecc = p[2] + (p[3]-1)*p[2]*np.sin(az/2.)**2
+        return np.exp( -0.5*((r-r_ecc)/w_ecc)**2 )/np.sqrt(2*np.pi)/w_ecc * \
+               np.exp( -0.5*( el/p[4] )**2 ) * \
                (1 - p[1]*np.cos(az))
 
     # Power law torus and parameters
@@ -362,13 +364,13 @@ class Image(object):
                  model='los_image_axisym', emit_model='blackbody',
                  dens_model='gauss_3d', dens_args={},
                  wavelength=None, pb_diameter=12.0,
-                 z_fact=1, verbose=True):
+                 star=False, z_fact=1, verbose=True):
         '''Get an object to make images.
 
         Parameters
         ----------
         image_size: length 2 tuple (nx, ny)
-            Size of output image.
+            Size of output image. Better to be even.
         arcsec_pix: float
             Pixel scale of output image.
         rmax_arcsec: float
@@ -384,12 +386,18 @@ class Image(object):
         dens_args : dict
             Dict of args to be passed to dens.
         emit_model: str
-            Emission model to use. Takes no parameters
+            Emission model to use. Takes no parameters.
+        star : bool, optional
+            Include a star at the image center.
         wavelength : float
             Wavelength of observations in m, used to create primary beam.
         pb_diameter : float, optional
             Dish diameter to calculate primary beam, in m.
         '''
+
+        if image_size[0] % 2 != 0 or image_size[1] % 2 != 0:
+            print('WARNING: image size {} not even,'
+                  'interpret offsets carefully!'.format(image_size))
 
         self.image_size = image_size
         self.model = model
@@ -443,6 +451,13 @@ class Image(object):
         self.p_ranges = self.image_p_ranges + self.emit_p_ranges + self.dens_p_ranges
         self.n_params = len(self.params)
 
+        # decide if there is a star or not
+        self.star = star
+        if star:
+            self.params += ['$F_{star}$']
+            self.p_ranges += [[0.0, np.inf]]
+            self.n_params = len(self.params)
+
         # say something about the model
         if verbose:
             print('model:{} with density:{} and emit:{}'.\
@@ -467,6 +482,7 @@ class Image(object):
                          'cutout_func':self.los_image_cutout,
                          'cube':self.los_image_cube,
                          'rv_cube':self.rv_cube_,
+                         'rv_cube_gal':self.rv_cube_galario_,
                          'params':self.los_image_params,
                          'p_ranges':self.los_image_p_ranges
                         },
@@ -475,6 +491,7 @@ class Image(object):
                                 'cutout_func':self.los_image_cutout_axisym,
                                 'cube':self.los_image_cube_axisym,
                                 'rv_cube':self.rv_cube_axisym,
+                                'rv_cube_gal':self.rv_cube_galario_axisym,
                                 'params':self.los_image_axisym_params,
                                 'p_ranges':self.los_image_axisym_p_ranges
                         }
@@ -485,6 +502,7 @@ class Image(object):
         self.image_cutout = models[model]['cutout_func']
         self.cube = models[model]['cube']
         self.rv_cube = models[model]['rv_cube']
+        self.rv_cube_galario = models[model]['rv_cube_gal']
         self.image_params = models[model]['params']
         self.image_p_ranges = models[model]['p_ranges']
         self.n_image_params = len(self.image_params)
@@ -557,8 +575,8 @@ class Image(object):
             ymax = np.max(  np.abs( np.where( y_sum/np.max(y_sum) > tol )[0] \
                                     - len(y_sum)//2 ) )
             z_sum = np.sum(cube,axis=(0,1))
-            zmax = int( np.max( np.where( z_sum/np.max(z_sum) > tol )[0] \
-                                / self.z_fact ) )
+            zmax = np.max( np.abs( np.where( z_sum/np.max(z_sum) > tol )[0] \
+                                   - len(z_sum)//2 ) )
             print('model x,y,z extent {}, {}, {}'.format(xmax,ymax,zmax))
 
             rmax = ( np.array([xmax, ymax, zmax]) + expand ).astype(int)
@@ -739,13 +757,27 @@ class Image(object):
 
                 # the density in this y,z layer
                 layer = self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
-                        self.dens(r,az,el,p[6+self.n_emit_params:])
+                        self.dens(r,az,el,
+                                  p[slice(6+self.n_emit_params,
+                                          6+self.n_emit_params+self.n_dens_params)]
+                                  )
 
                 # put this in the image
                 image[:,i] = np.sum(layer,axis=1)
 
-        return tot * image / np.sum(image)
+        image = tot * image / np.sum(image)
+        
+        # star, Gaussian 2pixel FWHM
+        if self.star:
+            x, y = np.meshgrid(self.x - x0 / self.arcsec_pix,
+                               self.y - y0 / self.arcsec_pix)
+            rxy2 = x**2 + y**2
+            sigma = 2. / 2.35482
+            image += p[6+self.n_emit_params+self.n_dens_params] * \
+                     np.exp(-0.5*rxy2/sigma**2) / (2*np.pi*sigma**2)
 
+        return image
+                      
 
     def los_image_cutout(self, p, cube=False):
         '''Version of los_image_cutout_.
@@ -762,8 +794,8 @@ class Image(object):
                                                cube=cube)
 
     los_image_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
-    los_image_p_ranges = [[-1,1], [-1,1], [-180,180],
-                          [-180,180], [0.,90], [0.,np.inf]]
+    los_image_p_ranges = [[-1,1], [-1,1], [-270,270],
+                          [-270,270], [0.,120], [0.,np.inf]]
     def los_image(self, p):
         '''Version of los_image, full parameters'''
         img = self.los_image_cutout(p)
@@ -774,13 +806,13 @@ class Image(object):
 
     los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
     los_image_axisym_p_ranges = [[-1,1], [-1,1],
-                                 [-180,180], [0.,90], [0.,np.inf]]
+                                 [-270,270], [0.,120], [0.,np.inf]]
     def los_image_axisym(self, p):
         '''Version of los_image, no anomaly dependence in dens.'''
         return self.los_image(np.append(p[:3],np.append(0.0,p[3:])))
 
     def los_image_galario(self, p):
-        '''Version of los_image for galario, no x/y offset, postion angle.'''
+        '''Version of los_image for galario, no x/y offset, position angle.'''
         img = self.los_image_cutout_(np.append([0.0,0.0,0.0],p))
         image = np.zeros((self.ny, self.nx))
         dx = np.diff(self.rmax[0])[0]
@@ -808,8 +840,9 @@ class Image(object):
         return self.los_image_cube(np.append(p[:3],np.append(0.0,p[3:])))
 
 
-    def rv_cube_(self, p, rv_min, dv, n_chan, mstar, distance, v_sys=0.0):
-        '''Return a velocity cube, units of km/s.
+    def rv_cube_cutout_(self, p, rv_min, dv, n_chan, mstar,
+                        distance, v_sys=0.0):
+        '''Return a cutout velocity cube, units of km/s.
             
         Parameters
         ----------
@@ -834,7 +867,7 @@ class Image(object):
         au = 1.496e11
 
         # get the density cube
-        c = self.los_image_cutout(p, cube=True)
+        c = self.los_image_cutout_(p, cube=True)
 
         # cube distances
         x, y, z = np.meshgrid(self.x-x0/self.arcsec_pix,
@@ -856,23 +889,62 @@ class Image(object):
         edges = rv_min + np.arange(n_chan+1) * dv
         h = np.digitize(vr, bins=edges)
 
-        tmp_cube = np.zeros((c.shape[0], c.shape[1], n_chan))
+        rvc = np.zeros((c.shape[0], c.shape[1], n_chan))
         for i in range(n_chan):
             ok = h == i+1
             if np.any(ok):
                 mask = np.array(ok, dtype=int)
-                tmp_cube[:,:,i] = np.sum(c*mask, axis=2)
+                rvc[:,:,i] = np.sum(c*mask, axis=2)
 
+        return rvc
+
+
+    def rv_cube_cutout(self, p, rv_min, dv, n_chan, mstar,
+                       distance, v_sys=0.0):
+        '''Version of rv_cube_cutout_.
+            
+        All calls come through here so this is the only routine where
+        the cutout offset is subtracted.
+        '''
+        return self.rv_cube_cutout_(np.append([p[0]-self.x0_arcsec,
+                                               p[1]-self.y0_arcsec], p[2:]),
+                                    rv_min, dv, n_chan, mstar, distance, v_sys)
+
+    def rv_cube_(self, p, rv_min, dv, n_chan, mstar,
+                distance, v_sys=0.0):
+        '''Version of rv_cube, full parameters.'''
+        rvc = self.rv_cube_cutout(p, rv_min, dv, n_chan, mstar,
+                                  distance, v_sys)
         # put this in the image
         c_out = np.zeros((self.ny, self.nx, n_chan))
         c_out[self.ny2+self.rmax[1,0]:self.ny2+self.rmax[1,1],
-              self.nx2+self.rmax[0,0]:self.nx2+self.rmax[0,1], :] = tmp_cube
-
+              self.nx2+self.rmax[0,0]:self.nx2+self.rmax[0,1], :] = rvc
         return c_out
-                
 
-    def rv_cube_axisym(self, p, rv_min, dv, n_chan, mstar, distance, v_sys=0.0):
+    def rv_cube_axisym(self, p, rv_min, dv, n_chan, mstar,
+                       distance, v_sys=0.0):
         '''Version of rv_cube for axisymmetric disks.'''
         return self.rv_cube_(np.append(p[:3],np.append(0.0,p[3:])),
-                             rv_min, dv, n_chan, mstar, distance,
-                             v_sys=v_sys)
+                             rv_min, dv, n_chan, mstar, distance, v_sys)
+
+    def rv_cube_galario_(self, p, rv_min, dv, n_chan,
+                         mstar, distance, v_sys=0.0):
+        '''Version of los_image_cube for galario, no x/y offset,
+        postion angle.
+        '''
+        rvc = self.rv_cube_cutout_(np.append([0.0,0.0,0.0],p), rv_min, dv,
+                                   n_chan, mstar, distance, v_sys)
+        c = np.zeros((self.ny, self.nx, n_chan))
+        dx = np.diff(self.rmax[0])[0]
+        dy = np.diff(self.rmax[1])[0]
+        c[self.ny2-dy//2:self.ny2+dy//2,
+          self.nx2-dx//2:self.nx2+dx//2, :] = rvc
+        return c
+
+    def rv_cube_galario_axisym(self, p, rv_min, dv, n_chan,
+                               mstar, distance, v_sys=0.0):
+        '''Version of los_image_cube for galario, no x/y offset, postion
+        angle, or anomaly dependence.
+        '''
+        return self.rv_cube_galario_(np.append([0.0],p), rv_min,
+                                     dv, n_chan, mstar, distance, v_sys)
