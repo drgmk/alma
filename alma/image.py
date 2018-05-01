@@ -182,16 +182,7 @@ class Dens(object):
     gauss_2d_p_ranges = [rr,dr]
     def gauss_2d(self, r, az, el, p):
         '''Gaussian torus with fixed scale height.'''
-        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                np.exp( -0.5*(el/self.gaussian_scale_height)**2 )
-
-    # Gaussian torus with fixed scale height and optical depth
-    gauss_2d_opthk_params = ['$r_0$','$\sigma_r$','$\\tau$']
-    gauss_2d_opthk_p_ranges = [rr,dr,[0,50]]
-    def gauss_2d_opthk(self, r, az, el, p):
-        '''Gaussian torus with fixed scale height.'''
-        return (1 - np.exp( -p[2]*np.exp( -0.5*((r-p[0])/p[1])**2 ) )) * \
-                np.exp( -0.5*(el/self.gaussian_scale_height)**2 )
+        return self.gauss_3d(r,az,el,np.append(p,self.gaussian_scale_height))
 
     # Gaussian in/out torus and parameters
     gauss2_3d_params = ['$r_0$','$\sigma_{r,in}$',
@@ -256,14 +247,7 @@ class Dens(object):
     box_2d_p_ranges = [rr,dr]
     def box_2d(self,r,az,el,p):
         '''Box torus in 2d. assume r,az,el are vectors.'''
-        in_i = (r > p[0]-p[1]/2.) & (r < p[0]+p[1]/2.) & \
-                   (np.abs(el) <= self.box_half_height)
-        if isinstance(in_i,(bool,np.bool_)):
-            return float(in_i)
-        else:
-            dens = np.zeros(r.shape)
-            dens[in_i] = 1.0
-            return dens
+        return self.box_3d(r,az,el,np.append(p,self.box_half_height))
 
     # Box torus and parameters
     box_3d_params = ['$r_0$','$\delta_r$','$\delta_h$']
