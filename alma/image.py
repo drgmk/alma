@@ -121,9 +121,6 @@ class Dens(object):
             'gauss_2d':{'func':self.gauss_2d,
                         'params':self.gauss_2d_params,
                         'p_ranges':self.gauss_2d_p_ranges},
-            'gauss_2d_opthk':{'func':self.gauss_2d_opthk,
-                              'params':self.gauss_2d_opthk_params,
-                              'p_ranges':self.gauss_2d_opthk_p_ranges},
             'gauss2_3d':{'func':self.gauss2_3d,
                         'params':self.gauss2_3d_params,
                         'p_ranges':self.gauss2_3d_p_ranges},
@@ -243,24 +240,24 @@ class Dens(object):
                   np.exp( -0.5*(el/p[4])**2 )
 
     # Box torus and parameters
-    box_2d_params = ['$r_0$','$\delta_r$']
-    box_2d_p_ranges = [rr,dr]
+    box_2d_params = ['$r_{in}$','$r_{out}$','$\\alpha$']
+    box_2d_p_ranges = [rr,rr,[-10,10]]
     def box_2d(self,r,az,el,p):
         '''Box torus in 2d. assume r,az,el are vectors.'''
         return self.box_3d(r,az,el,np.append(p,self.box_half_height))
 
     # Box torus and parameters
-    box_3d_params = ['$r_0$','$\delta_r$','$\delta_h$']
-    box_3d_p_ranges = [rr,dr,dh]
+    box_3d_params = ['$r_{in}$','$r_{out}$','$\\alpha$','$\delta_h$']
+    box_3d_p_ranges = [rr,rr,[-10,10],dh]
     def box_3d(self,r,az,el,p):
         '''Box torus in 3d. assume r,az,el are vectors.'''
-        in_i = (r > p[0]-p[1]/2.) & (r < p[0]+p[1]/2.) & \
-                   (np.abs(el) <= p[2]/2)
+        in_i = (r > p[0]) & (r < p[1]) & \
+                   (np.abs(el) <= p[3]/2.0)
         if isinstance(in_i,(bool,np.bool_)):
             return float(in_i)
         else:
             dens = np.zeros(r.shape)
-            dens[in_i] = 1.0
+            dens[in_i] = r[in_i]**p[2]
             return dens
 
 
