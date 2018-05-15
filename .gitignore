@@ -1,5 +1,6 @@
 alma.xcodeproj/
 __pycache__
+.pytest_cache/
 .cache
 .DS_Store
 *.pyc
