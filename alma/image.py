@@ -294,6 +294,9 @@ class Emit(object):
         '''
 
         models = {
+            'rj_tail':{'func':self.rj_tail,
+                       'params':self.rj_tail_params,
+                       'p_ranges':self.rj_tail_p_ranges},
             'blackbody':{'func':self.blackbody,
                          'params':self.blackbody_params,
                          'p_ranges':self.blackbody_p_ranges},
@@ -323,16 +326,29 @@ class Emit(object):
 
 
     # blackbody, no knobs, p is a dummy
-    blackbody_params = []
-    blackbody_p_ranges = []
-    def blackbody(self, r, p):
-        '''Blackbody.'''
+    rj_tail_params = []
+    rj_tail_p_ranges = []
+    def rj_tail(self, r, p, wavelength=None):
+        '''Rayleigh-Jeans tail.'''
         return 1.0/r**0.5
 
+    # blackbody, no knobs, p is a dummy
+    blackbody_params = ['$r_{T_0}$','$T_0$']
+    blackbody_p_ranges = []
+    def blackbody(self, r, p, wavelength=None):
+        '''Blackbody, wavelength in m.'''
+        k1 = 3.9728949e19
+        k2 = 14387.69
+        temp = p[1] / np.sqrt(r/p[0])
+        fact1 = k1/((wavelength*1e6)**3)
+        fact2 = k2/(temp*wavelength*1e6)
+        fnu = np.array(fact1/(np.exp(fact2)-1.0))
+        return fnu
+        
     # constant temp, no knobs, p is a dummy
     constant_params = []
     constant_p_ranges = []
-    def constant(self, r, p):
+    def constant(self, r, p, wavelength=None):
         '''Constant.'''
         return 1.0
 
@@ -342,7 +358,7 @@ class Image(object):
 
     def __init__(self,image_size=None, arcsec_pix=None,
                  rmax_arcsec=None, rmax_off=(0,0),
-                 model='los_image_axisym', emit_model='blackbody',
+                 model='los_image_axisym', emit_model='rj_tail',
                  dens_model='gauss_3d', dens_args={},
                  wavelength=None, pb_diameter=12.0,
                  star=False, z_fact=1, verbose=True):
@@ -522,7 +538,9 @@ class Image(object):
             p_ = np.append(np.append(p[:2],0), p[3:])
         else:
             p_ = p
-    
+
+        p_start = self.n_image_params + self.n_emit_params
+
         # Work inwards, stopping when density becomes non-zero. Density
         # model is assumed to peak near 1 so absolute tolerance is used.
         def find_radial():
@@ -530,7 +548,7 @@ class Image(object):
                 for az in np.arange(0,360,30):
                     for el in np.arange(-90,90,15):
                         if self.dens(r*self.arcsec_pix,az,el,
-                                     p_[self.n_image_params:]) > tol:
+                                     p_[p_start:]) > tol:
                             self.set_rmax(np.tile(r + expand,3),
                                           x0=p[0], y0=p[1])
                             print('radial r_max: {} pix at {},{}'.\
@@ -709,7 +727,8 @@ class Image(object):
             el = np.arctan2(z3,rxy)
 
             # the density, dimensions are y, z, x -> y, x, z
-            cube = self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
+            cube = self.emit(r,p[slice(6,6+self.n_emit_params)],
+                             wavelength=self.wavelength) * \
                    self.dens(r,az,el,p[6+self.n_emit_params:])
             return tot * np.rollaxis(cube, 2, 1) / np.sum(cube)
     
@@ -737,7 +756,8 @@ class Image(object):
                 el = np.arctan2(z3,rxy)
 
                 # the density in this y,z layer
-                layer = self.emit(r,p[slice(6,6+self.n_emit_params)]) * \
+                layer = self.emit(r,p[slice(6,6+self.n_emit_params)],
+                                  wavelength=self.wavelength) * \
                         self.dens(r,az,el,
                                   p[slice(6+self.n_emit_params,
                                           6+self.n_emit_params+self.n_dens_params)]
