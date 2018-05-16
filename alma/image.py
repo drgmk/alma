@@ -414,7 +414,7 @@ class Image(object):
                              np.max([self.nx2,self.ny2])])
             self.set_rmax(rmax)
         else:
-            self.set_rmax(np.tile(rmax_arcsec/arcsec_pix,3),
+            self.set_rmax(rmax_arcsec/arcsec_pix,
                           x0=rmax_off[0], y0=rmax_off[1])
 
         # set the image model
