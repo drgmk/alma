@@ -12,7 +12,7 @@ def test_list_models():
 def test_blackbody():
     r = 1 + np.arange(10)
     t = 1 / r**0.5
-    e = alma.image.Emit(model='blackbody')
+    e = alma.image.Emit(model='rj_tail')
     assert(np.all(np.equal(t,e.emit(r,np.inf))))
 
 def test_other_emit_function():
