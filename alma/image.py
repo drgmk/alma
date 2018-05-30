@@ -127,12 +127,18 @@ class Dens(object):
             'gauss_3d_test':{'func':self.gauss_3d_test,
                              'params':self.gauss_3d_test_params,
                              'p_ranges':self.gauss_3d_test_p_ranges},
+            'power_2d':{'func':self.power_2d,
+                        'params':self.power_2d_params,
+                        'p_ranges':self.power_2d_p_ranges},
             'power_3d':{'func':self.power_3d,
                         'params':self.power_3d_params,
                         'p_ranges':self.power_3d_p_ranges},
-            'power_top_3d':{'func':self.power_top_3d,
-                        'params':self.power_top_3d_params,
-                        'p_ranges':self.power_top_3d_p_ranges},
+            'power2_3d':{'func':self.power2_3d,
+                         'params':self.power2_3d_params,
+                         'p_ranges':self.power2_3d_p_ranges},
+            'power2_top_3d':{'func':self.power2_top_3d,
+                         'params':self.power2_top_3d_params,
+                         'p_ranges':self.power2_top_3d_p_ranges},
             'box_2d':{'func':self.box_2d,
                         'params':self.box_2d_params,
                         'p_ranges':self.box_2d_p_ranges},
@@ -161,10 +167,10 @@ class Dens(object):
             raise ValueError('incorrect arguments')
 
     # set the allowed ranges for radius, width, height, power exponent
-    rr = [0.,500.]
-    dr = [0.001,10.]
+    rr = [0.,np.inf]
+    dr = [0.001,np.inf]
     dh = [0.01,1.] # radians
-    pr = [1.,50.]
+    pr = [-np.inf,np.inf]
 
     # Gaussian torus and parameters
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
@@ -219,20 +225,40 @@ class Dens(object):
                np.exp( -0.5*( el/p[4] )**2 ) * \
                (1 - p[1]*np.cos(az))
 
-    # Power law torus and parameters
-    power_3d_params = ['$r_0$','$p_{in}$','$p_{out}$','$\sigma_h$']
-    power_3d_p_ranges = [rr,pr,pr,dh]
+    # Single power law torus and parameters
+    power_3d_params = ['$r_{in}$','$r_{out}$','$\\alpha$','$\sigma_h$']
+    power_3d_p_ranges = [rr,rr,pr,dh]
     def power_3d(self,r,az,el,p):
-        '''Power law radial profile with Gaussian scale height.'''
+        '''Single power law radial profile with Gaussian scale height.'''
+        in_i = (r > p[0]) & (r < p[1])
+        if isinstance(in_i,(bool,np.bool_)):
+            return float(in_i) * np.exp( -0.5*(el/p[3])**2 )
+        else:
+            dens = np.zeros(r.shape)
+            dens[in_i] = r[in_i]**p[2] * np.exp( -0.5*(el[in_i]/p[3])**2 )
+            return dens
+
+    # Single power law torus and parameters
+    power_2d_params = ['$r_{in}$','$r_{out}$','$\\alpha$']
+    power_2d_p_ranges = [rr,rr,pr]
+    def power_2d(self,r,az,el,p):
+        '''Single power law radial profile with fixed Gaussian scale height.'''
+        return self.power_3d(r,az,el,np.append(p,self.gaussian_scale_height))
+
+    # Two-power law torus and parameters
+    power2_3d_params = ['$r_0$','$p_{in}$','$p_{out}$','$\sigma_h$']
+    power2_3d_p_ranges = [rr,pr,pr,dh]
+    def power2_3d(self,r,az,el,p):
+        '''Two-power law radial profile with Gaussian scale height.'''
         return 1/np.sqrt( (r/p[0])**p[2] + (r/p[0])**(-p[1]) ) * \
                     np.exp( -0.5*(el/p[3])**2 )
 
-    # Power top-hat law torus and parameters
-    power_top_3d_params = ['$r_0$','$p_{in}$','$p_{out}$',
+    # Two-power top-hat law torus and parameters
+    power2_top_3d_params = ['$r_0$','$p_{in}$','$p_{out}$',
                            '$\delta_r$','$\sigma_h$']
-    power_top_3d_p_ranges = [rr,pr,pr,dr,dh]
-    def power_top_3d(self,r,az,el,p):
-        '''Power law top hat radial profile with Gaussian scale height.'''
+    power2_top_3d_p_ranges = [rr,pr,pr,dr,dh]
+    def power2_top_3d(self,r,az,el,p):
+        '''Two-power law top hat radial profile with Gaussian scale height.'''
         hw = p[3]/2.0
         w2 = p[3]**2
         return np.sqrt( (2+w2) / ( (r/(p[0]+hw))**(2*p[2]) + w2 +
@@ -241,16 +267,16 @@ class Dens(object):
 
     # Box torus and parameters
     box_2d_params = ['$r_{in}$','$r_{out}$','$\\alpha$']
-    box_2d_p_ranges = [rr,rr,[-10,10]]
+    box_2d_p_ranges = [rr,rr,pr]
     def box_2d(self,r,az,el,p):
-        '''Box torus in 2d. assume r,az,el are vectors.'''
+        '''Box torus in 2d with fixed height.'''
         return self.box_3d(r,az,el,np.append(p,self.box_half_height))
 
     # Box torus and parameters
     box_3d_params = ['$r_{in}$','$r_{out}$','$\\alpha$','$\delta_h$']
-    box_3d_p_ranges = [rr,rr,[-10,10],dh]
+    box_3d_p_ranges = [rr,rr,pr,dh]
     def box_3d(self,r,az,el,p):
-        '''Box torus in 3d. assume r,az,el are vectors.'''
+        '''Box torus in 3d.'''
         in_i = (r > p[0]) & (r < p[1]) & \
                    (np.abs(el) <= p[3]/2.0)
         if isinstance(in_i,(bool,np.bool_)):
@@ -806,7 +832,7 @@ class Image(object):
         return image
 
     los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
-    los_image_axisym_p_ranges = [[-1,1], [-1,1],
+    los_image_axisym_p_ranges = [[-np.inf,np.inf], [-np.inf,np.inf],
                                  [-270,270], [0.,120], [0.,np.inf]]
     def los_image_axisym(self, p):
         '''Version of los_image, no anomaly dependence in dens.'''
