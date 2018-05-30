@@ -125,6 +125,7 @@ class Fit(object):
         image = self.img.image(p[3:]) * self.img.pb
         
         # galario  translates and rotates it for us
+        image = np.flipud(image)  # galario expects origin=upper
         chi2 = gd.chi2Image(image, self.dxy,
                             self.u, self.v, self.re, self.im, self.w,
                             dRA = p[0]*arcsec, dDec = p[1]*arcsec,
