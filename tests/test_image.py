@@ -12,9 +12,9 @@ def test_image():
 def test_image_galario_symmetric():
     d = alma.image.Image(arcsec_pix=1, image_size=(100,100), wavelength=1e-3)
     im = d.image_galario([40, 1, 20, 5, 0.2])
-    assert(np.sum(im - np.fliplr(im)) < 1e-20)
-    assert(np.sum(im - np.flipud(im)) < 1e-20)
-    assert(np.sum(im - np.flipud(np.fliplr(im))) < 1e-20)
+    assert(np.sum(np.abs(im[1:,1:] - np.fliplr(im[1:,1:]))) < 1e-15)
+    assert(np.sum(np.abs(im[1:,1:] - np.flipud(im[1:,1:]))) < 1e-15)
+    assert(np.sum(np.abs(im[1:,1:] - np.rot90(np.rot90(np.fliplr(im[1:,1:]))))) < 1e-15)
 
 
 def test_image_cutout_offset():
