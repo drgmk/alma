@@ -645,8 +645,10 @@ class Image(object):
                    self.rmax[1,0] < -self.ny2, self.rmax[1,1] > self.ny2]):
             raise ValueError('crop outside image, make larger or pad less')
 
-        self.cc_gal = (slice(self.ny2-rmax[1],self.ny2+rmax[1]),
-                       slice(self.nx2-rmax[0],self.nx2+rmax[0]))
+        # crop slices for convenience, add one for Galario
+        # cutout to allow for off-center image
+        self.cc_gal = (slice(self.ny2-rmax[1]+1,self.ny2+rmax[1]),
+                       slice(self.nx2-rmax[0]+1,self.nx2+rmax[0]))
         self.cc = (slice(self.ny2+self.rmax[1,0],self.ny2+self.rmax[1,1]),
                    slice(self.nx2+self.rmax[0,0],self.nx2+self.rmax[0,1]))
 
@@ -839,8 +841,14 @@ class Image(object):
         return self.los_image(np.append(p[:3],np.append(0.0,p[3:])))
 
     def los_image_galario(self, p):
-        '''Version of los_image for galario, no x/y offset, position angle.'''
-        img = self.los_image_cutout_(np.append([0.0,0.0,0.0],p))
+        '''Version of los_image for galario, no x/y offset, position angle.
+        
+        Galario expects the image center in the center of the pixel to
+        the upper right of the actual center, so the center is half a
+        pixel away from the actual image center.
+        '''
+        img = self.los_image_cutout_(np.append([self.arcsec_pix/2.,
+                                                self.arcsec_pix/2.,0.0],p))
         image = np.zeros((self.ny, self.nx))
         dx = np.diff(self.rmax[0])[0]
         dy = np.diff(self.rmax[1])[0]
@@ -958,8 +966,15 @@ class Image(object):
                          mstar, distance, v_sys=0.0):
         '''Version of los_image_cube for galario, no x/y offset,
         postion angle.
+
+        Galario expects the image center in the center of the pixel to
+        the upper right of the actual center, so the center is half a
+        pixel away from the actual image center.
         '''
-        rvc = self.rv_cube_cutout_(np.append([0.0,0.0,0.0],p), rv_min, dv,
+
+        rvc = self.rv_cube_cutout_(np.append([self.arcsec_pix/2.,
+                                              self.arcsec_pix/2.,
+                                              0.0],p), rv_min, dv,
                                    n_chan, mstar, distance, v_sys)
         c = np.zeros((self.ny, self.nx, n_chan))
         dx = np.diff(self.rmax[0])[0]
