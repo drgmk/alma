@@ -130,6 +130,12 @@ class Dens(object):
             'power_2d':{'func':self.power_2d,
                         'params':self.power_2d_params,
                         'p_ranges':self.power_2d_p_ranges},
+            'power_3d_ecc_rin':{'func':self.power_3d_ecc_rin,
+                                'params':self.power_3d_ecc_rin_params,
+                                'p_ranges':self.power_3d_ecc_rin_p_ranges},
+            'power_2d_ecc_rin':{'func':self.power_2d_ecc_rin,
+                                'params':self.power_2d_ecc_rin_params,
+                                'p_ranges':self.power_2d_ecc_rin_p_ranges},
             'power_3d':{'func':self.power_3d,
                         'params':self.power_3d_params,
                         'p_ranges':self.power_3d_p_ranges},
@@ -166,11 +172,13 @@ class Dens(object):
         else:
             raise ValueError('incorrect arguments')
 
-    # set the allowed ranges for radius, width, height, power exponent
+    # set the allowed ranges for:
+    # radius, width, height, power exponent, eccentricity
     rr = [0.,np.inf]
     dr = [0.001,np.inf]
     dh = [0.01,1.] # radians
     pr = [-np.inf,np.inf]
+    er = [0.,1.]
 
     # Gaussian torus and parameters
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
@@ -244,6 +252,31 @@ class Dens(object):
     def power_2d(self,r,az,el,p):
         '''Single power law radial profile with fixed Gaussian scale height.'''
         return self.power_3d(r,az,el,np.append(p,self.gaussian_scale_height))
+
+    # Single power law torus with eccentric inner edge and parameters
+    power_3d_ecc_rin_params = ['$r_{in}$','$r_{out}$','$\\alpha$',
+                               '$e_{in}$','$\sigma_h$']
+    power_3d_ecc_rin_p_ranges = [rr,rr,pr,er,dh]
+    def power_3d_ecc_rin(self,r,az,el,p):
+        '''Single power law radial profile with Gaussian scale height
+        and eccentric inner edge.'''
+        r_in = p[0] * ( 1 - p[3]**2 ) / ( 1 + p[3]*np.cos(az) )
+        in_i = (r > r_in) & (r < p[1])
+        if isinstance(in_i,(bool,np.bool_)):
+            return float(in_i) * np.exp( -0.5*(el/p[4])**2 )
+        else:
+            dens = np.zeros(r.shape)
+            dens[in_i] = r[in_i]**p[2] * np.exp( -0.5*(el[in_i]/p[4])**2 )
+            return dens
+
+    # Single power law torus with eccentric inner edge and parameters
+    power_2d_ecc_rin_params = ['$r_{in}$','$r_{out}$','$\\alpha$',
+                               '$e_{in}$']
+    power_2d_ecc_rin_p_ranges = [rr,rr,pr,er]
+    def power_2d_ecc_rin(self,r,az,el,p):
+        '''Single power law radial profile with fixed Gaussian scale height
+        and eccentric inner edge.'''
+        return self.power_3d_ecc_rin(r,az,el,np.append(p,self.gaussian_scale_height))
 
     # Two-power law torus and parameters
     power2_3d_params = ['$r_0$','$p_{in}$','$p_{out}$','$\sigma_h$']
@@ -844,16 +877,20 @@ class Image(object):
         '''Version of los_image for galario, no x/y offset, position angle.
         
         Galario expects the image center in the center of the pixel to
-        the upper right of the actual center, so the center is half a
-        pixel away from the actual image center.
+        the upper right of the actual center (if 0,0 is the lower left).
+        Galario also expects images where 0,0 is the upper left (i.e.
+        different to FITS and this package). Thus, put the center half a
+        pixel to the lower right of center, and flip upside down before
+        returning.
         '''
         img = self.los_image_cutout_(np.append([self.arcsec_pix/2.,
-                                                self.arcsec_pix/2.,0.0],p))
+                                                -self.arcsec_pix/2.,0.0],
+                                               p))
         image = np.zeros((self.ny, self.nx))
         dx = np.diff(self.rmax[0])[0]
         dy = np.diff(self.rmax[1])[0]
         image[self.ny2-dy//2:self.ny2+dy//2,
-              self.nx2-dx//2:self.nx2+dx//2] = img
+              self.nx2-dx//2:self.nx2+dx//2] = np.flipud(img)
         return image
 
     def los_image_galario_axisym(self, p):
@@ -973,14 +1010,14 @@ class Image(object):
         '''
 
         rvc = self.rv_cube_cutout_(np.append([self.arcsec_pix/2.,
-                                              self.arcsec_pix/2.,
+                                              -self.arcsec_pix/2.,
                                               0.0],p), rv_min, dv,
                                    n_chan, mstar, distance, v_sys)
         c = np.zeros((self.ny, self.nx, n_chan))
         dx = np.diff(self.rmax[0])[0]
         dy = np.diff(self.rmax[1])[0]
         c[self.ny2-dy//2:self.ny2+dy//2,
-          self.nx2-dx//2:self.nx2+dx//2, :] = rvc
+          self.nx2-dx//2:self.nx2+dx//2, :] = np.flipud(rvc)
         return c
 
     def rv_cube_galario_axisym(self, p, rv_min, dv, n_chan,
