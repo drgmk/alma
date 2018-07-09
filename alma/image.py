@@ -118,6 +118,9 @@ class Dens(object):
             'gauss_ecc_3d':{'func':self.gauss_ecc_3d,
                             'params':self.gauss_ecc_3d_params,
                             'p_ranges':self.gauss_ecc_3d_p_ranges},
+            'gauss_ecc_2d':{'func':self.gauss_ecc_2d,
+                            'params':self.gauss_ecc_2d_params,
+                            'p_ranges':self.gauss_ecc_2d_p_ranges},
             'gauss_2d':{'func':self.gauss_2d,
                         'params':self.gauss_2d_params,
                         'p_ranges':self.gauss_2d_p_ranges},
@@ -232,6 +235,14 @@ class Dens(object):
         return np.exp( -0.5*((r-r_ecc)/w_ecc)**2 )/np.sqrt(2*np.pi)/w_ecc * \
                np.exp( -0.5*( el/p[4] )**2 ) * \
                (1 - p[1]*np.cos(az))
+
+    # Gaussian eccentric ring
+    gauss_ecc_2d_params = ['$r_0$','$e$','$\sigma_{peri}$',
+                           '$\sigma_{apo}/\sigma_{peri}$']
+    gauss_ecc_2d_p_ranges = [rr,[0,1],dr,[1,10]]
+    def gauss_ecc_2d(self,r,az,el,p):
+        '''Gaussian eccentric torus, variable width.'''
+        return self.gauss_ecc_3d(r,az,el,np.append(p,self.gaussian_scale_height))
 
     # Single power law torus and parameters
     power_3d_params = ['$r_{in}$','$r_{out}$','$\\alpha$','$\sigma_h$']
@@ -855,7 +866,7 @@ class Image(object):
         return self.los_image_cutout(np.append(p[:3],np.append(0.0,p[3:])),
                                                cube=cube)
 
-    los_image_params = ['$x_0$','$y_0$','$\Omega$','$f$','$i$','$F$']
+    los_image_params = ['$x_0$','$y_0$','$\Omega$','$\omega$','$i$','$F$']
     los_image_p_ranges = [[-1,1], [-1,1], [-270,270],
                           [-270,270], [0.,120], [0.,np.inf]]
     def los_image(self, p):
@@ -878,19 +889,19 @@ class Image(object):
         
         Galario expects the image center in the center of the pixel to
         the upper right of the actual center (if 0,0 is the lower left).
-        Galario also expects images where 0,0 is the upper left (i.e.
-        different to FITS and this package). Thus, put the center half a
-        pixel to the lower right of center, and flip upside down before
-        returning.
+        
+        Assume here that galario will be called with origin='lower', so
+        that images do not need to be flipped (having 0,0 in the lower
+        left corner.
         '''
         img = self.los_image_cutout_(np.append([self.arcsec_pix/2.,
-                                                -self.arcsec_pix/2.,0.0],
+                                                self.arcsec_pix/2.,0.0],
                                                p))
         image = np.zeros((self.ny, self.nx))
         dx = np.diff(self.rmax[0])[0]
         dy = np.diff(self.rmax[1])[0]
         image[self.ny2-dy//2:self.ny2+dy//2,
-              self.nx2-dx//2:self.nx2+dx//2] = np.flipud(img)
+              self.nx2-dx//2:self.nx2+dx//2] = img
         return image
 
     def los_image_galario_axisym(self, p):
@@ -1010,14 +1021,14 @@ class Image(object):
         '''
 
         rvc = self.rv_cube_cutout_(np.append([self.arcsec_pix/2.,
-                                              -self.arcsec_pix/2.,
+                                              self.arcsec_pix/2.,
                                               0.0],p), rv_min, dv,
                                    n_chan, mstar, distance, v_sys)
         c = np.zeros((self.ny, self.nx, n_chan))
         dx = np.diff(self.rmax[0])[0]
         dy = np.diff(self.rmax[1])[0]
         c[self.ny2-dy//2:self.ny2+dy//2,
-          self.nx2-dx//2:self.nx2+dx//2, :] = np.flipud(rvc)
+          self.nx2-dx//2:self.nx2+dx//2, :] = rvc
         return c
 
     def rv_cube_galario_axisym(self, p, rv_min, dv, n_chan,
