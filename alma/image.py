@@ -224,22 +224,19 @@ class Dens(object):
                     np.exp( -0.5*(el/p[2])**2 ) * \
                     (az+2*np.pi)%(2*np.pi)
 
-    # Gaussian eccentric ring
-    gauss_ecc_3d_params = ['$r_0$','$e$','$\sigma_{peri}$',
-                           '$\sigma_{apo}/\sigma_{peri}$','$\sigma_h$']
-    gauss_ecc_3d_p_ranges = [rr,[0,1],dr,[1,10],dh]
+    # narrow Gaussian eccentric ring
+    gauss_ecc_3d_params = ['$r_0$','$e$','$\sigma_r$','$\sigma_h$']
+    gauss_ecc_3d_p_ranges = [rr,[0,1],dr,dh]
     def gauss_ecc_3d(self,r,az,el,p):
         '''Gaussian eccentric torus, variable width.'''
         r_ecc = p[0] * ( 1 - p[1]**2 ) / ( 1 + p[1]*np.cos(az) )
-        w_ecc = p[2] + (p[3]-1)*p[2]*np.sin(az/2.)**2
-        return np.exp( -0.5*((r-r_ecc)/w_ecc)**2 )/np.sqrt(2*np.pi)/w_ecc * \
-               np.exp( -0.5*( el/p[4] )**2 ) * \
+        return np.exp( -0.5*((r-r_ecc)/p[2])**2 )/np.sqrt(2*np.pi)/p[2] * \
+               np.exp( -0.5*( el/p[3] )**2 ) * \
                (1 - p[1]*np.cos(az))
 
-    # Gaussian eccentric ring
-    gauss_ecc_2d_params = ['$r_0$','$e$','$\sigma_{peri}$',
-                           '$\sigma_{apo}/\sigma_{peri}$']
-    gauss_ecc_2d_p_ranges = [rr,[0,1],dr,[1,10]]
+    # narrow Gaussian eccentric ring
+    gauss_ecc_2d_params = ['$r_0$','$e$','$\sigma_r$']
+    gauss_ecc_2d_p_ranges = [rr,[0,1],dr]
     def gauss_ecc_2d(self,r,az,el,p):
         '''Gaussian eccentric torus, variable width.'''
         return self.gauss_ecc_3d(r,az,el,np.append(p,self.gaussian_scale_height))
@@ -867,7 +864,7 @@ class Image(object):
                                                cube=cube)
 
     los_image_params = ['$x_0$','$y_0$','$\Omega$','$\omega$','$i$','$F$']
-    los_image_p_ranges = [[-1,1], [-1,1], [-270,270],
+    los_image_p_ranges = [[-np.inf,np.inf], [-np.inf,np.inf], [-270,270],
                           [-270,270], [0.,120], [0.,np.inf]]
     def los_image(self, p):
         '''Version of los_image, full parameters'''
