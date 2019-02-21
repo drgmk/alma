@@ -1035,3 +1035,83 @@ class Image(object):
         '''
         return self.rv_cube_galario_(np.append([0.0],p), rv_min,
                                      dv, n_chan, mstar, distance, v_sys)
+
+
+def eccentric_ring_positions(a0, da, e_f0, i_f0, sigma_ep=0, sigma_ip=0,
+                             omega_f0=0, node=0.0, inc=0.0, n=1000000):
+    '''Return positions of particles in an eccentric ring model.
+    
+    Parameters
+    ----------
+    a0 : float
+        Semi-major axis of ring particles.
+    da : float
+        Gaussian dispersion of ring width.
+    e_f0 : float
+        Forced eccentricity magnitude.
+    i_f0 : float
+        Forced inclination magnitude.
+    sigma_ep : float
+        Gaussian dispersion of proper eccentricity.
+    sigma_ip : float
+        Gaussian dispersion of proper inclination.
+    omega_f0 : float
+        Forced pericenter in radians.
+    node : float
+        Position angle of disk, in radians.
+    inc : float
+        Sky inclination of disk plane, in radians.
+    n : int
+        Number of particles.
+    '''
+
+    import dd.dynamics # for convmf
+
+    # complex forced eccentricity vector
+    e_f = e_f0 * np.exp(1j*omega_f0)
+
+    # semi-major axes
+    a = np.random.normal(loc=a0, scale=da, size=n)
+
+    # proper eccentricity
+    e_p = np.random.normal(scale=sigma_ep, size=n)
+    omega_p = 2*np.pi*np.random.uniform(size=n)
+    e_p_vec = e_p*np.exp(1j*omega_p)
+
+    # pericenter angle distribution around forced eccentricity
+    omega_ef = 2*np.pi*np.random.uniform(size=n)
+
+    # mean anomaly
+    M = 2*np.pi*np.random.uniform(size=n)
+
+    # inclination, fixed around forced i for random node
+    i = np.random.normal(loc=i_f0, scale=sigma_ip, size=n)
+
+    # node, distributed randomly at ~fixed inclination
+    # as expected for secular nodal precession
+    Omega = 2*np.pi*np.random.uniform(size=n)
+
+    # full complex eccentricity distribution
+    e_vec = e_f + np.abs(e_p_vec - e_f) * np.exp(1j*omega_ef)
+    e = np.abs(e_vec)
+    omega_0 = np.angle(e_vec)
+
+    # true anomaly
+    f = dd.dynamics.convmf_fast(M, e)
+
+    # orbital locations, theta is from forced peri to particle
+    r = a * (1-e**2)/(1+e*np.cos(f))
+    theta = f + omega_0 - Omega
+
+    # cartesians in 'model' coordinates (but omega_f included)
+    x = r * (np.cos(Omega)*np.cos(theta) - np.sin(Omega)*np.sin(theta)*np.cos(i))
+    y = r * (np.sin(Omega)*np.cos(theta) + np.cos(Omega)*np.sin(theta)*np.cos(i))
+    z = r * np.sin(i) * np.sin(theta)
+
+    # rotate to observed position
+    y_tmp = y * np.cos(inc)
+    x_rot = x * np.cos(node+np.pi/2) - y_tmp * np.sin(node+np.pi/2)
+    y_rot = x * np.sin(node+np.pi/2) + y_tmp * np.cos(node+np.pi/2)
+
+    return x, y, x_rot, y_rot, z
+
