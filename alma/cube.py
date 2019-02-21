@@ -23,7 +23,7 @@ def v_rad(x,r,inc,mstar):
 
 
 def stack_vel(c, inclination=None, pa=None, mstar=None, x0=0.0, y0=0.0,
-              arcsec_pix=None, distance=None, vel_pix=None):
+              arcsec_pix=None, distance=None, vel_pix=None, vff_vc=0.0):
     '''Stack sky/velocity cube for a given inclination.
     
     Assume cube velocity dimension is increasing in rv, so a negative
@@ -53,6 +53,8 @@ def stack_vel(c, inclination=None, pa=None, mstar=None, x0=0.0, y0=0.0,
         Pixel scale of velocity axis.
     mask : ndarray of bool or int, same shape as c[:,:]
         Mask used to restrict pixels where velocites are stacked.
+    vff_vc : float, optional
+        Add "free-fall" (towards/away from star) component, fraction of V_Kep. 
     '''
 
     # distances in pixels
@@ -75,6 +77,14 @@ def stack_vel(c, inclination=None, pa=None, mstar=None, x0=0.0, y0=0.0,
     # velocities in each pixel
     sc = arcsec_pix * distance * 1.496e11
     vr = v_rad(y * sc, r * sc, inclination, mstar)
+
+    # optional "free-fall" (+ve is towards star) component
+    if vff_vc != 0.0:
+        phi = np.arctan2(x, y)
+        g, msun = 6.67408e-11, 1.9891e30
+        vcirc = np.sqrt(g * msun * mstar / (r*sc)**3) / 1e3
+        v_ff = - vff_vc * vcirc * r*sc * np.sin(phi)
+        vr += v_ff
 
     # shift cube by rolling each sky pixel
     c_shift = np.zeros(sh)
