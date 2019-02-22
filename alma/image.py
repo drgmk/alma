@@ -154,6 +154,9 @@ class Dens(object):
             'box_3d':{'func':self.box_3d,
                         'params':self.box_3d_params,
                         'p_ranges':self.box_3d_p_ranges},
+            'peri_glow':{'func':self.peri_glow,
+                        'params':self.peri_glow_params,
+                        'p_ranges':self.peri_glow_p_ranges},
                   }
     
         if list_models:
@@ -183,6 +186,14 @@ class Dens(object):
     pr = [-np.inf,np.inf]
     er = [0.,1.]
 
+    # pericenter glow, placeholder for now
+    peri_glow_params = ['$r_0$', '$\sigma_r$', '$e_f$', '$i_f$',
+                        '$\sigma_{e,p}$', '$\sigma_{i,p}$']
+    peri_glow_p_ranges = [rr,dr,er,er,er,er]
+    def peri_glow(self, r, ax, el, p):
+        '''Placeholder for pericenter glow.'''
+        pass
+    
     # Gaussian torus and parameters
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
     gauss_3d_p_ranges = [rr,dr,dh]
