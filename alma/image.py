@@ -184,15 +184,15 @@ class Dens(object):
     dr = [0.001,np.inf]
     dh = [0.01,1.] # radians
     pr = [-np.inf,np.inf]
-    er = [0.,1.]
+    er = [0.,0.5]
 
     # pericenter glow, placeholder for now
     peri_glow_params = ['$r_0$', '$\sigma_r$', '$e_f$', '$i_f$',
                         '$\sigma_{e,p}$', '$\sigma_{i,p}$']
-    peri_glow_p_ranges = [rr,dr,er,er,er,er]
+    peri_glow_p_ranges = [rr,dr,er,dh,er,dh]
     def peri_glow(self, r, ax, el, p):
         '''Placeholder for pericenter glow.'''
-        pass
+        print('Pericenter glow model not available by this method.')
     
     # Gaussian torus and parameters
     gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
@@ -1049,7 +1049,7 @@ class Image(object):
 
 
 def eccentric_ring_positions(a0, da, e_f0, i_f0, sigma_ep=0, sigma_ip=0,
-                             omega_f0=0, node=0.0, inc=0.0, n=1000000):
+                             omega_f0=0, node=0.0, inc=0.0, n=100000):
     '''Return positions of particles in an eccentric ring model.
     
     Parameters
@@ -1084,8 +1084,8 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, sigma_ep=0, sigma_ip=0,
     # semi-major axes
     a = np.random.normal(loc=a0, scale=da, size=n)
 
-    # proper eccentricity
-    e_p = np.random.normal(scale=sigma_ep, size=n)
+    # proper eccentricity, truncated Gaussian
+    e_p = np.abs(np.random.normal(scale=sigma_ep, size=n))
     omega_p = 2*np.pi*np.random.uniform(size=n)
     e_p_vec = e_p*np.exp(1j*omega_p)
 
@@ -1126,3 +1126,40 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, sigma_ep=0, sigma_ip=0,
 
     return x, y, x_rot, y_rot, z
 
+
+def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000):
+    '''Return an image of the particle-based eccentric ring model.
+    
+    Assumes use of galario where zero is center of pixel above and right
+    of actual center, when using origin='lower'.
+
+    Parameters
+    ----------
+    p : list
+        Parameter list.
+    n : int, optional
+        Number of particles used to create image.
+    '''
+
+    # get the particles
+    _, _, x, y, _ = eccentric_ring_positions(p[6], p[7], p[8], p[9],
+                                             sigma_ep=p[10], sigma_ip=p[11],
+                                             omega_f0=np.deg2rad(p[3]),
+                                             node=np.deg2rad(p[2]),
+                                             inc=np.deg2rad(p[4]),
+                                             n=n)
+
+    # flux normalised image
+    x0 = [-(nxy/2+0.5)*dxy_arcsec, (nxy/2-0.5)*dxy_arcsec]
+    h, _, _ = np.histogram2d(y, x, bins=nxy, range=[x0, x0], normed=True)
+    h = p[5] * h / np.sum(h)
+
+    # star if desired
+    if len(p) == 13:
+        xarr = np.arange(nxy)-nxy/2
+        y, x = np.meshgrid(xarr, xarr)
+        rxy2 = x**2 + y**2
+        sigma = 2. / 2.35482
+        h += p[12] * np.exp(-0.5*rxy2/sigma**2) / (2*np.pi*sigma**2)
+
+    return h
