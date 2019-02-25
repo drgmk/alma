@@ -1137,6 +1137,10 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000):
     ----------
     p : list
         Parameter list.
+    nxy : int
+        Number of pixels across (square) image.
+    dxy_arcsec : float
+        Arcseconds per pixel.
     n : int, optional
         Number of particles used to create image.
     '''
@@ -1150,8 +1154,10 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000):
                                              n=n)
 
     # flux normalised image
-    x0 = [-(nxy/2+0.5)*dxy_arcsec, (nxy/2-0.5)*dxy_arcsec]
-    h, _, _ = np.histogram2d(y, x, bins=nxy, range=[x0, x0], normed=True)
+    x_arr = np.array([-(nxy/2+0.5)*dxy_arcsec, (nxy/2-0.5)*dxy_arcsec])
+    x0 = x_arr - p[0]
+    y0 = x_arr - p[1]
+    h, _, _ = np.histogram2d(y, x, bins=nxy, range=[y0, x0], normed=True)
     h = p[5] * h / np.sum(h)
 
     # star if desired
