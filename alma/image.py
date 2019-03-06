@@ -189,7 +189,7 @@ class Dens(object):
     # pericenter glow, placeholder for now
     peri_glow_params = ['$r_0$', '$\sigma_r$', '$e_f$', '$i_f$', '$e_p$',
                         '$\sigma_{e,p}$', '$\sigma_{i,p}$']
-    peri_glow_p_ranges = [rr,dr,er,dh,er,er,dh]
+    peri_glow_p_ranges = [rr,dr,er,er,er,er,er]
     def peri_glow(self, r, ax, el, p):
         '''Placeholder for pericenter glow.'''
         print('Pericenter glow model not available by this method.')
@@ -1151,12 +1151,15 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000):
     '''
 
     # get the particles
-    _, _, x, y, _ = eccentric_ring_positions(p[6], p[7], p[8], p[9], p[10],
+    _, _, x, y, z = eccentric_ring_positions(p[6], p[7], p[8], p[9], p[10],
                                              sigma_ep=p[11], sigma_ip=p[12],
                                              omega_f0=np.deg2rad(p[3]),
                                              node=np.deg2rad(p[2]),
                                              inc=np.deg2rad(p[4]),
                                              n=n)
+
+    # weighting by temperature would go here ish, not obvious how to do it
+#    r = np.sqrt(x*x + y*y + z*z)
 
     # flux normalised image
     x_arr = np.array([-(nxy/2+0.5)*dxy_arcsec, (nxy/2-0.5)*dxy_arcsec])
