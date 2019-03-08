@@ -1124,7 +1124,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
     y = r * (np.sin(Omega)*np.cos(theta) + np.cos(Omega)*np.sin(theta)*np.cos(i))
     z = r * np.sin(i) * np.sin(theta)
 
-    # rotate to observed position
+    # incline and rotate to observed position
     y_tmp = y * np.cos(inc)
     x_rot = x * np.cos(node+np.pi/2) - y_tmp * np.sin(node+np.pi/2)
     y_rot = x * np.sin(node+np.pi/2) + y_tmp * np.cos(node+np.pi/2)
@@ -1132,7 +1132,8 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
     return x, y, x_rot, y_rot, z
 
 
-def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000):
+def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
+                         star_fwhm=2):
     '''Return an image of the particle-based eccentric ring model.
     
     Assumes use of galario where zero is center of pixel above and right
@@ -1148,24 +1149,27 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000):
         Arcseconds per pixel.
     n : int, optional
         Number of particles used to create image.
+    star_fwhm : float, optional
+        FWHM of star (make small for it to be a single pixel).
     '''
 
     # get the particles
-    _, _, x, y, z = eccentric_ring_positions(p[6], p[7], p[8], p[9], p[10],
-                                             sigma_ep=p[11], sigma_ip=p[12],
-                                             omega_f0=np.deg2rad(p[3]),
-                                             node=np.deg2rad(p[2]),
-                                             inc=np.deg2rad(p[4]),
-                                             n=n)
+    x0, y0, x, y, z0 = eccentric_ring_positions(p[6], p[7], p[8], p[9], p[10],
+                                                sigma_ep=p[11], sigma_ip=p[12],
+                                                omega_f0=np.deg2rad(p[3]),
+                                                node=np.deg2rad(p[2]),
+                                                inc=np.deg2rad(p[4]),
+                                                n=n)
 
-    # weighting by temperature would go here ish, not obvious how to do it
-#    r = np.sqrt(x*x + y*y + z*z)
+    # for weighting by temperature, use model coords
+    r = np.sqrt(x0*x0 + y0*y0 + z0*z0)
 
     # flux normalised image
     x_arr = np.array([-(nxy/2+0.5)*dxy_arcsec, (nxy/2-0.5)*dxy_arcsec])
     x0 = x_arr - p[0]
     y0 = x_arr - p[1]
-    h, _, _ = np.histogram2d(y, x, bins=nxy, range=[y0, x0], normed=True)
+    h, _, _ = np.histogram2d(y, x, bins=nxy, range=[y0, x0],
+                             weights=1/np.sqrt(r), normed=True)
     h = p[5] * h / np.sum(h)
 
     # star if desired
@@ -1173,7 +1177,8 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000):
         xarr = np.arange(nxy)-nxy/2
         y, x = np.meshgrid(xarr - p[0]/dxy_arcsec, xarr - p[1]/dxy_arcsec)
         rxy2 = x**2 + y**2
-        sigma = 2. / 2.35482
-        h += p[13] * np.exp(-0.5*rxy2/sigma**2) / (2*np.pi*sigma**2)
+        sigma = star_fwhm / 2.35482
+        star = np.exp(-0.5*rxy2/sigma**2)
+        h += star * p[13] / np.sum(star)
 
     return h
