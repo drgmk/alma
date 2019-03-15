@@ -438,7 +438,7 @@ class Image(object):
                  rmax_arcsec=None, rmax_off=(0,0),
                  model='los_image_axisym', emit_model='rj_tail',
                  dens_model='gauss_3d', dens_args={},
-                 wavelength=None, pb_diameter=12.0,
+                 wavelength=None, pb_diameter=12.0, pb_fits=None,
                  star=False, z_fact=1, verbose=True):
         '''Get an object to make images.
 
@@ -468,6 +468,8 @@ class Image(object):
             Wavelength of observations in m, used to create primary beam.
         pb_diameter : float, optional
             Dish diameter to calculate primary beam, in m.
+        pb_fits : str
+            Path to fits file of primary beam.
         '''
 
         if image_size[0] % 2 != 0 or image_size[1] % 2 != 0:
@@ -481,12 +483,30 @@ class Image(object):
         self.arcsec_pix = arcsec_pix
         self.rad_pix = arcsec_pix / (3600*180/np.pi)
         self.wavelength = wavelength
+        self.pb_diameter = pb_diameter
         self.z_fact = z_fact
 
         # set fixed some things needed to make images
         self.nx, self.ny = self.image_size
         self.nx2 = self.nx // 2
         self.ny2 = self.ny // 2
+
+        # set the image model
+        self.select(model)
+        
+        # primary beam, first set radial function
+        if pb_fits is None:
+            self.primary_beam_func = self.analytic_primary_beam_func
+        else:
+            self.primary_beam_func = self.get_empirical_primary_beam_func(pb_fits)
+
+        if self.wavelength is None and pb_fits is None:
+            self.pb = None
+            self.pb_galario = None
+        elif self:
+            self.set_primary_beam()
+
+        # set r_max
         if rmax_arcsec is None:
             rmax = np.array([self.nx2,self.ny2,
                              np.max([self.nx2,self.ny2])])
@@ -494,16 +514,6 @@ class Image(object):
         else:
             self.set_rmax(rmax_arcsec/arcsec_pix,
                           x0=rmax_off[0], y0=rmax_off[1])
-
-        # set the image model
-        self.select(model)
-        
-        # generate the primary beam
-        if self.wavelength is None:
-            self.pb = None
-            self.pb_galario = None
-        else:
-            self.set_primary_beam(self.wavelength)
 
         # set the density distribution function
         d = Dens(model=dens_model,**dens_args)
@@ -715,42 +725,105 @@ class Image(object):
             
         # recompute primary beam, to include shift
         if self.wavelength is not None:
-            self.set_primary_beam(self.wavelength, x0=x0, y0=y0)
+            self.set_primary_beam(x0=x0, y0=y0)
 
 
-    def set_primary_beam(self, wavelength, diameter=12.0, x0=0, y0=0):
-        '''Create an image of the primary beam.
-            
+    def analytic_primary_beam_func(self, r):
+        '''Analytic radial function for primary beam.
+        
         Use Gaussian of FWHM 1.13 lambda/D, based on this:
         https://help.almascience.org/index.php?/Knowledgebase/Article/View/234
         
         Parameters
         ----------
-        wavelength : float
-            Wavelength of observation in m.
-        diameter : float, optional
-            Single dish diameter, default is 12m (i.e. ALMA).
-        x0 : int
+        r : array of float
+            Radius array, in radians.
+        '''
+        return np.exp(-0.5 * ( r / (1.13*self.wavelength/self.pb_diameter/2.35) )**2 )
+
+
+    @staticmethod
+    def get_empirical_primary_beam_func(file, verb=True):
+        '''Return an interpolation object given a primary beam FITS.
+        
+        The object takes radius in radians.
+        '''
+        from astropy.io import fits
+        from scipy.optimize import minimize
+        from scipy.interpolate import interp1d
+
+        # open fits and get pixel scale
+        pb = fits.getdata(file)
+        h = fits.open(file)
+        pb = np.nan_to_num(pb.squeeze())
+        nxy, _ = pb.squeeze().shape # assume square
+        aspp = np.abs(h[0].header['CDELT1']*3600)
+
+        def get_r(p, im):
+            '''Get radius in radians.'''
+            nx, ny = im.shape
+            x = np.arange(nx) - (nx-1)/2. + p[0] / aspp
+            y = np.arange(ny) - (ny-1)/2. + p[1] / aspp
+            xx,yy = np.meshgrid(x,y)
+            return np.sqrt(xx**2 + yy**2) * aspp/3600*np.pi/180
+
+        def g2d(p, im):
+            r = get_r(p, im)
+            return np.exp(-0.5 * ( r / (p[2]*1e-4/2.35) )**2 )
+
+        def chi2(p, im):
+            return np.sum( ((im-g2d(p,im)))**2 )
+
+        # fit Gaussian to find center
+        p0 = [0, 0,  1.24226302]
+        res = minimize(chi2, p0, args=(pb), method='Nelder-Mead',
+                       options={'xatol':1e-5, 'fatol':1e-5, 'maxiter':1000, 'maxfev':1000})
+        if verb:
+            print('Initial:{}:{}'.format(p0, chi2(p0, pb)))
+            print('Gaussian fit:{}'.format(res))
+
+        # create interpolation object
+        r_rad = get_r(res['x'], pb)
+        r_int = np.append(0, r_rad.flatten())
+        pb_int = np.append(1, pb.flatten())
+        return interp1d(r_int, pb_int, fill_value=0.0, bounds_error=False)
+
+
+    def primary_beam_image(self, x0=0, y0=0):
+        '''Return an image of the primary beam.
+
+        Parameters
+        ----------
+        x0 : float
             shift in arcsec (when models are offset in image).
-        y0 : int
+        y0 : float
             shift in arcsec (when models are offset in image).
         '''
-        
-        # primary beam for normal images
-        x = np.arange(self.nx) - (self.nx-1)/2.
-        y = np.arange(self.ny) - (self.ny-1)/2.
-        xx,yy = np.meshgrid(x,y)
-        r = np.sqrt(xx**2 + yy**2) * self.rad_pix
-        
-        self.pb = np.exp(-0.5 * ( r / (1.13*wavelength/diameter/2.35) )**2 )
-        
-        # same again for galario images
         x = np.arange(self.nx) - (self.nx-1)/2. + x0 / self.arcsec_pix
         y = np.arange(self.ny) - (self.ny-1)/2. + y0 / self.arcsec_pix
         xx,yy = np.meshgrid(x,y)
         r = np.sqrt(xx**2 + yy**2) * self.rad_pix
+        return self.primary_beam_func(r)
+
+
+    def set_primary_beam(self, x0=0, y0=0):
+        '''Set images of the primary beam.
+            
+        This relies on the radial function having been set elsewhere.
+
+        Parameters
+        ----------
+        x0 : float
+            shift in arcsec (when models are offset in image).
+        y0 : float
+            shift in arcsec (when models are offset in image).
+        '''
         
-        self.pb_galario = np.exp(-0.5 * ( r / (1.13*wavelength/diameter/2.35) )**2 )
+        # primary beam for normal images
+        self.pb = self.primary_beam_image()
+        
+        # same again for galario images
+        self.pb_galario = self.primary_beam_image(x0, y0)
     
 
     def los_image_cutout_(self, p, cube=False):
