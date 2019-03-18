@@ -799,8 +799,8 @@ class Image(object):
         y0 : float
             shift in arcsec (when models are offset in image).
         '''
-        x = np.arange(self.nx) - (self.nx-1)/2. + x0 / self.arcsec_pix
-        y = np.arange(self.ny) - (self.ny-1)/2. + y0 / self.arcsec_pix
+        x = np.arange(self.nx) - (self.nx-1)/2. - x0 / self.arcsec_pix
+        y = np.arange(self.ny) - (self.ny-1)/2. - y0 / self.arcsec_pix
         xx,yy = np.meshgrid(x,y)
         r = np.sqrt(xx**2 + yy**2) * self.rad_pix
         return self.primary_beam_func(r)
@@ -822,8 +822,11 @@ class Image(object):
         # primary beam for normal images
         self.pb = self.primary_beam_image()
         
-        # same again for galario images
-        self.pb_galario = self.primary_beam_image(x0, y0)
+        # same again for galario images, the shift is negative since the
+        # galario image is not shifted, and will be shifted by galario
+        # (i.e. the primary beam is pre-shifted to attenuate the off-
+        # center image)
+        self.pb_galario = self.primary_beam_image(-x0, -y0)
     
 
     def los_image_cutout_(self, p, cube=False):
