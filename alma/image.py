@@ -1126,7 +1126,8 @@ class Image(object):
 
 def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
                              sigma_ep=0, sigma_ip=0,
-                             omega_f0=0, node=0.0, inc=0.0, n=100000):
+                             omega_f0=0, node=0.0, inc=0.0, n=100000,
+                             return_e=False):
     '''Return positions of particles in an eccentric ring model.
     
     Parameters
@@ -1153,6 +1154,8 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
         Sky inclination of disk plane, in radians.
     n : int
         Number of particles.
+    return_e : bool
+        Return eccentricity vectors instead of positions.
     '''
 
     import dd.dynamics # for convmf
@@ -1163,12 +1166,12 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
     # semi-major axes
     a = np.random.normal(loc=a0, scale=da, size=n)
 
-    # proper eccentricity is distance from forced (i.e. e_p=e_f means
-    # original e_p was at origin, not at forced e), Gaussian
+    # proper eccentricity is distance from forced towards origin
+    # (i.e. e_p=e_f means original e_p was at origin, not at forced e)
     e_p = np.abs(np.random.normal(scale=sigma_ep, size=n))
     omega_p = 2*np.pi*np.random.uniform(size=n)
-    e_p_vec = e_p*np.exp(1j*omega_p)
-    e_p_vec += np.abs(e_f - e_p0)*np.exp(1j*omega_f0)
+    e_p_vec = e_p*np.exp(1j*omega_p)            # at zero
+    e_p_vec += (e_f - e_p0)*np.exp(1j*omega_f0) # to actual location
 
     # pericenter angle distribution around forced eccentricity
     omega_ef = 2*np.pi*np.random.uniform(size=n)
@@ -1187,6 +1190,9 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
     e_vec = e_f + np.abs(e_p_vec - e_f) * np.exp(1j*omega_ef)
     e = np.abs(e_vec)
     omega_0 = np.angle(e_vec)
+
+    if return_e:
+        return e_f, e_p_vec, e_vec
 
     # true anomaly
     f = dd.dynamics.convmf_fast(M, e)
@@ -1209,7 +1215,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
 
 
 def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
-                         star_fwhm=2):
+                         star_fwhm=2, return_e=False):
     '''Return an image of the particle-based eccentric ring model.
     
     Assumes use of galario where zero is center of pixel above and right
@@ -1227,15 +1233,22 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
         Number of particles used to create image.
     star_fwhm : float, optional
         FWHM of star (make small for it to be a single pixel).
+    return_e : bool
+        Return eccentricity vectors instead of an image.
     '''
 
     # get the particles
-    x0, y0, x, y, z0 = eccentric_ring_positions(p[6], p[7], p[8], p[9], p[10],
-                                                sigma_ep=p[11], sigma_ip=p[12],
-                                                omega_f0=np.deg2rad(p[3]),
-                                                node=np.deg2rad(p[2]),
-                                                inc=np.deg2rad(p[4]),
-                                                n=n)
+    out = eccentric_ring_positions(p[6], p[7], p[8], p[9], p[10],
+                                   sigma_ep=p[11], sigma_ip=p[12],
+                                   omega_f0=np.deg2rad(p[3]),
+                                   node=np.deg2rad(p[2]),
+                                   inc=np.deg2rad(p[4]),
+                                   n=n, return_e=return_e)
+                                    
+    if return_e:
+        return out
+    else:
+        x0, y0, x, y, z0 = out
 
     # for weighting by temperature, use model coords
     r = np.sqrt(x0*x0 + y0*y0 + z0*z0)
