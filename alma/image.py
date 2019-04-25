@@ -1171,7 +1171,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
     e_p = np.abs(np.random.normal(scale=sigma_ep, size=n))
     omega_p = 2*np.pi*np.random.uniform(size=n)
     e_p_vec = e_p*np.exp(1j*omega_p)            # at zero
-    e_p_vec += (e_f - e_p0)*np.exp(1j*omega_f0) # to actual location
+    e_p_vec += (e_f0 - e_p0)*np.exp(1j*omega_f0) # to actual location
 
     # pericenter angle distribution around forced eccentricity
     omega_ef = 2*np.pi*np.random.uniform(size=n)
