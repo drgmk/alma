@@ -1127,7 +1127,7 @@ class Image(object):
 def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
                              sigma_ep=0, sigma_ip=0,
                              omega_f0=0, node=0.0, inc=0.0, n=100000,
-                             return_e=False):
+                             return_e=False, da_gauss=True):
     '''Return positions of particles in an eccentric ring model.
     
     Parameters
@@ -1156,6 +1156,8 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
         Number of particles.
     return_e : bool
         Return eccentricity vectors instead of positions.
+    da_gauss : bool
+        da is Gaussian sigma if True, uniform a0-da/2..a0+da/2 if False.
     '''
 
     import dd.dynamics # for convmf
@@ -1164,7 +1166,10 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
     e_f = e_f0 * np.exp(1j*omega_f0)
 
     # semi-major axes
-    a = np.random.normal(loc=a0, scale=da, size=n)
+    if da_gauss:
+        a = np.random.normal(loc=a0, scale=da, size=n)
+    else:
+        a = np.random.uniform(a0-da/2, a0+da/2, size=n)
 
     # proper eccentricity is distance from forced towards origin
     # (i.e. e_p=e_f means original e_p was at origin, not at forced e)
@@ -1215,7 +1220,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
 
 
 def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
-                         star_fwhm=2, return_e=False):
+                         star_fwhm=2, return_e=False, da_gauss=True):
     '''Return an image of the particle-based eccentric ring model.
     
     Assumes use of galario where zero is center of pixel above and right
@@ -1235,6 +1240,8 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
         FWHM of star (make small for it to be a single pixel).
     return_e : bool
         Return eccentricity vectors instead of an image.
+    da_gauss : bool
+        da is Gaussian sigma if True, uniform a0-da/2..a0+da/2 if False.
     '''
 
     # get the particles
@@ -1243,7 +1250,8 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
                                    omega_f0=np.deg2rad(p[3]),
                                    node=np.deg2rad(p[2]),
                                    inc=np.deg2rad(p[4]),
-                                   n=n, return_e=return_e)
+                                   n=n, return_e=return_e,
+                                   da_gauss=da_gauss)
                                     
     if return_e:
         return out
