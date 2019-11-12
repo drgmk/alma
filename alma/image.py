@@ -115,6 +115,9 @@ class Dens(object):
             'gauss_3d':{'func':self.gauss_3d,
                         'params':self.gauss_3d_params,
                         'p_ranges':self.gauss_3d_p_ranges},
+            'gauss_surf_3d':{'func':self.gauss_surf_3d,
+                        'params':self.gauss_surf_3d_params,
+                        'p_ranges':self.gauss_surf_3d_p_ranges},
             'gauss_ecc_3d':{'func':self.gauss_ecc_3d,
                             'params':self.gauss_ecc_3d_params,
                             'p_ranges':self.gauss_ecc_3d_p_ranges},
@@ -187,7 +190,7 @@ class Dens(object):
     er = [0.,0.5]
 
     # pericenter glow, placeholder for now
-    peri_glow_params = ['$r_0$', '$\sigma_r$', '$e_f$', '$i_f$', '$e_p$',
+    peri_glow_params = ['$a_0$', '$\sigma_a$', '$e_f$', '$i_f$', '$e_p$',
                         '$\sigma_{e,p}$', '$\sigma_{i,p}$']
     peri_glow_p_ranges = [rr,dr,er,er,er,er,er]
     def peri_glow(self, r, ax, el, p):
@@ -201,6 +204,14 @@ class Dens(object):
         '''Gaussian torus.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
                     np.exp( -0.5*(el/p[2])**2 )
+
+    # Gaussian torus, Gaussian surface density
+    gauss_surf_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
+    gauss_surf_3d_p_ranges = [rr,dr,dh]
+    def gauss_surf_3d(self, r, az, el, p):
+        '''Gaussian torus.'''
+        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
+                    np.exp( -0.5*(el/p[2])**2 ) / np.sqrt(2*np.pi) / p[2]
 
     # Gaussian torus with fixed scale height and parameters
     gauss_2d_params = ['$r_0$','$\sigma_r$']
@@ -549,7 +560,7 @@ class Image(object):
                     format(model,dens_model,emit_model))
             print('parameters are {}'.format(self.params))
             if rmax_arcsec is None:
-                print('rmax not set, run compute_rmax before generating images')
+                print('rmax not set, run compute_rmax before generating images (may not apply to all density models)')
 
 
     def select(self,model):
