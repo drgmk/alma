@@ -979,7 +979,7 @@ class Image(object):
         '''Version of los_image, no anomaly dependence in dens.'''
         return self.los_image(np.append(p[:3],np.append(0.0,p[3:])))
 
-    def los_image_galario(self, p):
+    def los_image_galario(self, p, cutout=False):
         '''Version of los_image for galario, no x/y offset, position angle.
         
         Galario expects the image center in the center of the pixel to
@@ -988,10 +988,19 @@ class Image(object):
         Assume here that galario will be called with origin='lower', so
         that images do not need to be flipped (having 0,0 in the lower
         left corner.
+
+        Parameters
+        ----------
+        p : list
+            List of parameters.
+        cutout : bool
+            Return cutout rather than full image.
         '''
         img = self.los_image_cutout_(np.append([self.arcsec_pix/2.,
                                                 self.arcsec_pix/2.,0.0],
                                                p))
+        if cutout:
+            return img
         image = np.zeros((self.ny, self.nx))
         dx = np.diff(self.rmax[0])[0]
         dy = np.diff(self.rmax[1])[0]
@@ -999,11 +1008,11 @@ class Image(object):
               self.nx2-dx//2:self.nx2+dx//2] = img
         return image
 
-    def los_image_galario_axisym(self, p):
+    def los_image_galario_axisym(self, p, cutout=False):
         '''Version of los_image for galario, no x/y offset, postion
         angle, or anomaly dependence.
         '''
-        return self.los_image_galario(np.append([0.0],p))
+        return self.los_image_galario(np.append([0.0],p), cutout=cutout)
 
     def los_image_cube(self, p):
         '''Version of los_image to return the cube.'''
