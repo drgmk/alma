@@ -252,7 +252,8 @@ def export_ms(msfile, tb, ms, outfile='uv.npy'):
     del uu
     del vv
 
-    # Select only data that is NOT flagged
+    # Select only data that is NOT flagged, this step has the unexpected
+    # effect of flattening the arrays to 1d
     data_real = data_real[np.logical_not(flags)]
     data_imag = data_imag[np.logical_not(flags)]
     flagss = flags[np.logical_not(flags)]
