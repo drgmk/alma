@@ -1041,7 +1041,7 @@ class Image(object):
 
 
     def rv_cube_cutout_(self, p, rv_min, dv, n_chan, mstar,
-                        distance, v_sys=0.0):
+                        distance, v_sys=0.0, vff=0.0):
         '''Return a cutout velocity cube, units of km/s.
             
         Parameters
@@ -1059,12 +1059,15 @@ class Image(object):
         distance : float
             Distance to star in parsecs.
         v_sys : float, optional
-         Systemic velocity, in km/s.
+            Systemic velocity, in km/s.
+        vff : float, optional
+            Add "free-fall" (+ve -> star) component, fraction of V_Kep.
         '''
 
         x0, y0, pos, anom, inc, tot = p[:6]
 
         au = 1.496e11
+        sc = self.arcsec_pix * distance * au
 
         # get the density cube
         c = self.los_image_cutout_(p, cube=True)
@@ -1072,9 +1075,9 @@ class Image(object):
         # cube distances
         x, y, z = np.meshgrid(self.x-x0/self.arcsec_pix,
                               self.y-y0/self.arcsec_pix, self.z)
-        r = np.sqrt(x*x + y*y + z*z) * self.arcsec_pix * distance * au
+        r = np.sqrt(x*x + y*y + z*z) * sc
 
-        # get distance along major axis
+        # get distance along major axis as y
         t = np.array([[np.cos(np.deg2rad(pos)),-np.sin(np.deg2rad(pos))],
                       [np.sin(np.deg2rad(pos)), np.cos(np.deg2rad(pos))]])
         XY = np.vstack( (x.reshape(-1), y.reshape(-1)) )
@@ -1082,8 +1085,15 @@ class Image(object):
         x, y = xy.reshape( (2,) + x.shape )
 
         # velocities in each pixel for this inclination
-        vr = cube.v_rad(y * self.arcsec_pix * distance * au,
-                        r, inc, mstar) + v_sys
+        vr = cube.v_rad(y * sc, r, inc, mstar) + v_sys
+
+        # "free-fall" (+ve is towards star) component
+        if vff != 0.0:
+            phi = np.arcsin(z/r) # angle from sky plane to pixel
+            g, msun = 6.67408e-11, 1.9891e30
+            vcirc = np.sqrt(g * msun * mstar / (r*sc)**3) / 1e3
+            v_ff = - vff * vcirc * np.sin(phi)
+            vr += v_ff
 
         # the velocity cube
         edges = rv_min + np.arange(n_chan+1) * dv
@@ -1100,7 +1110,7 @@ class Image(object):
 
 
     def rv_cube_cutout(self, p, rv_min, dv, n_chan, mstar,
-                       distance, v_sys=0.0):
+                       distance, v_sys=0.0, vff=0.0):
         '''Version of rv_cube_cutout_.
             
         All calls come through here so this is the only routine where
@@ -1108,13 +1118,14 @@ class Image(object):
         '''
         return self.rv_cube_cutout_(np.append([p[0]-self.x0_arcsec,
                                                p[1]-self.y0_arcsec], p[2:]),
-                                    rv_min, dv, n_chan, mstar, distance, v_sys)
+                                    rv_min, dv, n_chan, mstar, distance,
+                                    v_sys, vff)
 
     def rv_cube_(self, p, rv_min, dv, n_chan, mstar,
-                distance, v_sys=0.0):
+                distance, v_sys=0.0, vff=0.0):
         '''Version of rv_cube, full parameters.'''
         rvc = self.rv_cube_cutout(p, rv_min, dv, n_chan, mstar,
-                                  distance, v_sys)
+                                  distance, v_sys, vff)
         # put this in the image
         c_out = np.zeros((self.ny, self.nx, n_chan))
         c_out[self.ny2+self.rmax[1,0]:self.ny2+self.rmax[1,1],
@@ -1122,13 +1133,14 @@ class Image(object):
         return c_out
 
     def rv_cube_axisym(self, p, rv_min, dv, n_chan, mstar,
-                       distance, v_sys=0.0):
+                       distance, v_sys=0.0, vff=0.0):
         '''Version of rv_cube for axisymmetric disks.'''
         return self.rv_cube_(np.append(p[:3],np.append(0.0,p[3:])),
-                             rv_min, dv, n_chan, mstar, distance, v_sys)
+                             rv_min, dv, n_chan, mstar, distance,
+                             v_sys, vff)
 
     def rv_cube_galario_(self, p, rv_min, dv, n_chan,
-                         mstar, distance, v_sys=0.0):
+                         mstar, distance, v_sys=0.0, vff=0.0):
         '''Version of los_image_cube for galario, no x/y offset,
         postion angle.
 
@@ -1140,7 +1152,7 @@ class Image(object):
         rvc = self.rv_cube_cutout_(np.append([self.arcsec_pix/2.,
                                               self.arcsec_pix/2.,
                                               0.0],p), rv_min, dv,
-                                   n_chan, mstar, distance, v_sys)
+                                   n_chan, mstar, distance, v_sys, vff)
         c = np.zeros((self.ny, self.nx, n_chan))
         dx = np.diff(self.rmax[0])[0]
         dy = np.diff(self.rmax[1])[0]
@@ -1149,12 +1161,12 @@ class Image(object):
         return c
 
     def rv_cube_galario_axisym(self, p, rv_min, dv, n_chan,
-                               mstar, distance, v_sys=0.0):
+                               mstar, distance, v_sys=0.0, vff=0.0):
         '''Version of los_image_cube for galario, no x/y offset, postion
         angle, or anomaly dependence.
         '''
-        return self.rv_cube_galario_(np.append([0.0],p), rv_min,
-                                     dv, n_chan, mstar, distance, v_sys)
+        return self.rv_cube_galario_(np.append([0.0],p), rv_min, dv,
+                                     n_chan, mstar, distance, v_sys, vff)
 
 
 def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
