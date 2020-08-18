@@ -63,8 +63,17 @@ def rotate_zxz(z1,x,z2):
 
 class Dens(object):
     '''Define some density functions.
+        
+    These are generally two or three-dimensional, in most cases with a
+    Gaussian scale height that is either fixed (to 0.05 by default) or a
+    variable. Since the scale height (z/r) is the parameter, rather than
+    absolute height, the (z-integrated) surface density will increase 
+    with radius unless explicitly accounted for, e.g. most Gaussian torus
+    models are Gaussian in 3d space, not in surface density, but for the
+    power-law models the index is for surface density.
     
-    Should peak at or near 1, to aid finding integration box.
+    These models should peak at or near 1, to aid finding the integration
+    box in `compute_rmax`.
     '''
 
     def __init__(self,model='gauss_3d',gaussian_scale_height=0.05,
@@ -211,7 +220,7 @@ class Dens(object):
     def gauss_surf_3d(self, r, az, el, p):
         '''Gaussian torus.'''
         return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(el/p[2])**2 ) / np.sqrt(2*np.pi) / p[2]
+                    np.exp( -0.5*(el/p[2])**2 ) / r
 
     # Gaussian torus with fixed scale height and parameters
     gauss_2d_params = ['$r_0$','$\sigma_r$']
@@ -267,20 +276,22 @@ class Dens(object):
     power_3d_params = ['$r_{in}$','$r_{out}$','$\\alpha$','$\sigma_h$']
     power_3d_p_ranges = [rr,rr,pr,dh]
     def power_3d(self,r,az,el,p):
-        '''Single power law radial profile with Gaussian scale height.'''
+        '''Single power law surface density profile with Gaussian scale
+        height.'''
         in_i = (r > p[0]) & (r < p[1])
         if isinstance(in_i,(bool,np.bool_)):
             return float(in_i) * np.exp( -0.5*(el/p[3])**2 )
         else:
             dens = np.zeros(r.shape)
-            dens[in_i] = r[in_i]**p[2] * np.exp( -0.5*(el[in_i]/p[3])**2 )
+            dens[in_i] = r[in_i]**(p[2]-1) * np.exp( -0.5*(el[in_i]/p[3])**2 )
             return dens
 
     # Single power law torus and parameters
     power_2d_params = ['$r_{in}$','$r_{out}$','$\\alpha$']
     power_2d_p_ranges = [rr,rr,pr]
     def power_2d(self,r,az,el,p):
-        '''Single power law radial profile with fixed Gaussian scale height.'''
+        '''Single power law surface density profile with fixed Gaussian
+        scale height.'''
         return self.power_3d(r,az,el,np.append(p,self.gaussian_scale_height))
 
     # Single power law torus with eccentric inner edge and parameters
@@ -288,15 +299,15 @@ class Dens(object):
                                '$e_{in}$','$\sigma_h$']
     power_3d_ecc_rin_p_ranges = [rr,rr,pr,er,dh]
     def power_3d_ecc_rin(self,r,az,el,p):
-        '''Single power law radial profile with Gaussian scale height
-        and eccentric inner edge.'''
+        '''Single power law surface density profile with Gaussian scale 
+        height and eccentric inner edge.'''
         r_in = p[0] * ( 1 - p[3]**2 ) / ( 1 + p[3]*np.cos(az) )
         in_i = (r > r_in) & (r < p[1])
         if isinstance(in_i,(bool,np.bool_)):
             return float(in_i) * np.exp( -0.5*(el/p[4])**2 )
         else:
             dens = np.zeros(r.shape)
-            dens[in_i] = r[in_i]**p[2] * np.exp( -0.5*(el[in_i]/p[4])**2 )
+            dens[in_i] = r[in_i]**(p[2]-1) * np.exp( -0.5*(el[in_i]/p[4])**2 )
             return dens
 
     # Single power law torus with eccentric inner edge and parameters
@@ -312,21 +323,23 @@ class Dens(object):
     power2_3d_params = ['$r_0$','$p_{in}$','$p_{out}$','$\sigma_h$']
     power2_3d_p_ranges = [rr,pr,pr,dh]
     def power2_3d(self,r,az,el,p):
-        '''Two-power law radial profile with Gaussian scale height.'''
+        '''Two-power law surface density profile with Gaussian scale
+        height.'''
         return 1/np.sqrt( (r/p[0])**p[2] + (r/p[0])**(-p[1]) ) * \
-                    np.exp( -0.5*(el/p[3])**2 )
+                    np.exp( -0.5*(el/p[3])**2 ) / r
 
     # Two-power top-hat law torus and parameters
     power2_top_3d_params = ['$r_0$','$p_{in}$','$p_{out}$',
                            '$\delta_r$','$\sigma_h$']
     power2_top_3d_p_ranges = [rr,pr,pr,dr,dh]
     def power2_top_3d(self,r,az,el,p):
-        '''Two-power law top hat radial profile with Gaussian scale height.'''
+        '''Two-power law top hat surface density profile with Gaussian
+        scale height.'''
         hw = p[3]/2.0
         w2 = p[3]**2
         return np.sqrt( (2+w2) / ( (r/(p[0]+hw))**(2*p[2]) + w2 +
                                    (r/(p[0]-hw))**(-2*p[1]) ) ) * \
-                  np.exp( -0.5*(el/p[4])**2 )
+                  np.exp( -0.5*(el/p[4])**2 ) / r
 
     # Box torus and parameters
     box_2d_params = ['$r_{in}$','$r_{out}$','$\\alpha$']
@@ -346,7 +359,7 @@ class Dens(object):
             return float(in_i)
         else:
             dens = np.zeros(r.shape)
-            dens[in_i] = r[in_i]**p[2]
+            dens[in_i] = r[in_i]**(p[2]-1)
             return dens
 
 
