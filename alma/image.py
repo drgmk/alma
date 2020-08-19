@@ -1089,11 +1089,12 @@ class Image(object):
 
         # "free-fall" (+ve is towards star) component
         if vff != 0.0:
-            phi = np.arcsin(z/r) # angle from sky plane to pixel
-            g, msun = 6.67408e-11, 1.9891e30
-            vcirc = np.sqrt(g * msun * mstar / (r*sc)**3) / 1e3
-            v_ff = - vff * vcirc * np.sin(phi)
-            vr += v_ff
+            phi = np.arcsin(z/r*sc) # angle from sky plane to pixel
+#            g, msun = 6.67408e-11, 1.9891e30
+#            vcirc = np.sqrt(g * msun * mstar / (r*sc)**3) / 1e3
+#            v_ff = - vff * vcirc * np.sin(phi)
+#            vr += v_ff
+            vr += -vff * np.sin(phi)
 
         # the velocity cube
         edges = rv_min + np.arange(n_chan+1) * dv
