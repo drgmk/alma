@@ -1061,7 +1061,7 @@ class Image(object):
         v_sys : float, optional
             Systemic velocity, in km/s.
         vff : float, optional
-            Add "free-fall" (+ve -> star) component, fraction of V_Kep.
+            Add "free-fall" (+ve -> star) component.
         '''
 
         x0, y0, pos, anom, inc, tot = p[:6]
@@ -1075,7 +1075,7 @@ class Image(object):
         # cube distances
         x, y, z = np.meshgrid(self.x-x0/self.arcsec_pix,
                               self.y-y0/self.arcsec_pix, self.z)
-        r = np.sqrt(x*x + y*y + z*z) * sc
+        r = np.sqrt(x*x + y*y + z*z)
 
         # get distance along major axis as y
         t = np.array([[np.cos(np.deg2rad(pos)),-np.sin(np.deg2rad(pos))],
@@ -1085,16 +1085,18 @@ class Image(object):
         x, y = xy.reshape( (2,) + x.shape )
 
         # velocities in each pixel for this inclination
-        vr = cube.v_rad(y * sc, r, inc, mstar) + v_sys
+        vr = cube.v_rad(y * sc, r * sc, inc, mstar) + v_sys
 
         # "free-fall" (+ve is towards star) component
         if vff != 0.0:
-            phi = np.arcsin(z/r*sc) # angle from sky plane to pixel
+            phi = np.arcsin(z/r) # angle from sky plane to pixel
+            vr += -vff * np.sin(phi)
+
+            # as fraction of V_Kep (sqrt(2) would be free fall from inf)
 #            g, msun = 6.67408e-11, 1.9891e30
 #            vcirc = np.sqrt(g * msun * mstar / (r*sc)**3) / 1e3
 #            v_ff = - vff * vcirc * np.sin(phi)
 #            vr += v_ff
-            vr += -vff * np.sin(phi)
 
         # the velocity cube
         edges = rv_min + np.arange(n_chan+1) * dv
