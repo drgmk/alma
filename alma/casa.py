@@ -131,7 +131,7 @@ def export_multi_uv_tables(ms, channels, file, tb, split):
 def export_ms(msfile, tb, ms, outfile='uv.npy'):
     '''Export an ms file to a numpy save file.
 
-    Direct copy of Luca's export.
+    Direct copy of Luca Matra's export.
 
     Everything is exported, so generally the ms file would already be
     averaged to a small number of channels, e.g. one per spw.
@@ -178,8 +178,8 @@ def export_ms(msfile, tb, ms, outfile='uv.npy'):
     spwid   = tb.getcol("DATA_DESC_ID")
     tb.close()
     if np.any(flags):
-        print "Note: some of the data is FLAGGED"
-    print "Found data with "+str(data.shape[-1])+" uv points"
+        print("Note: some of the data is FLAGGED")
+    print("Found data with "+str(data.shape[-1])+" uv points")
 
 
     #Use CASA ms tools to get the channel/spw info
@@ -188,7 +188,7 @@ def export_ms(msfile, tb, ms, outfile='uv.npy'):
     nchan = spw_info["0"]["NumChan"]
     npol = spw_info["0"]["NumCorr"]
     ms.close()
-    print "with "+str(nchan)+" channels per SPW and "+str(npol)+" polarizations,"
+    print("with "+str(nchan)+" channels per SPW and "+str(npol)+" polarizations,")
 
     # Use CASA table tools to get frequencies, which are needed to
     # calculate u-v points from baseline lengths
@@ -196,11 +196,11 @@ def export_ms(msfile, tb, ms, outfile='uv.npy'):
     freqs = tb.getcol("CHAN_FREQ")
     rfreq = tb.getcol("REF_FREQUENCY")
     tb.close()
-    print str(freqs.shape[1])+" SPWs and Channel 0 frequency of 1st SPW of "+str(rfreq[0]/1e9)+" GHz"
-    print "corresponding to "+str(2.9979e8/rfreq[0]*1e3)+" mm"
-    print "Average wavelength is "+str(2.9979e8/np.average(rfreq)*1e3)+" mm"
+    print(str(freqs.shape[1])+" SPWs and Channel 0 frequency of 1st SPW of "+str(rfreq[0]/1e9)+" GHz")
+    print("corresponding to "+str(2.9979e8/rfreq[0]*1e3)+" mm")
+    print("Average wavelength is "+str(2.9979e8/np.average(rfreq)*1e3)+" mm")
 
-    print "Datasets has baselines between "+str(np.min(np.sqrt(uvw[0,:]**2.0+uvw[1,:]**2.0)))+" and "+str(np.max(np.sqrt(uvw[0,:]**2.0+uvw[1,:]**2.0)))+" m"
+    print("Datasets has baselines between "+str(np.min(np.sqrt(uvw[0,:]**2.0+uvw[1,:]**2.0)))+" and "+str(np.max(np.sqrt(uvw[0,:]**2.0+uvw[1,:]**2.0)))+" m")
 
     #Initialize u and v arrays (coordinates in Fourier space)
     uu=np.zeros((freqs.shape[0],uvw[0,:].size))
