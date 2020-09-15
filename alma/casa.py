@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import uvplot.io
 
 '''CASA functions related to fitting models to ALMA data.'''
 
@@ -119,6 +118,7 @@ def export_multi_uv_tables(ms, channels, file, tb, split):
     '''
 
     print('This call will probably fail, paste out the code and run it.')
+    import uvplot.io
     for i in np.arange(channels[0], channels[1]+1):
         split_args = {'vis':ms,'datacolumn':'data','keepflags':False,
                       'timebin':'20s','spw':'0:{}'.format(i)}
