@@ -202,7 +202,7 @@ class Dens(object):
     peri_glow_params = ['$a_0$', '$\sigma_a$', '$e_f$', '$i_f$', '$e_p$',
                         '$\sigma_{e,p}$', '$\sigma_{i,p}$']
     peri_glow_p_ranges = [rr,dr,er,er,er,er,er]
-    def peri_glow(self, r, ax, el, p):
+    def peri_glow(self, r, az, el, p):
         '''Placeholder for pericenter glow.'''
         print('Pericenter glow model not available by this method.')
     
@@ -434,7 +434,7 @@ class Emit(object):
         '''Rayleigh-Jeans tail.'''
         return 1.0/r**0.5
 
-    # blackbody, no knobs, p is a dummy
+    # blackbody
     blackbody_params = ['$r_{T_0}$','$T_0$']
     blackbody_p_ranges = []
     def blackbody(self, r, p, wavelength=None):
