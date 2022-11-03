@@ -128,7 +128,7 @@ def export_multi_uv_tables(ms, channels, file, tb, split):
                                  split_args=split_args,verbose=True)
 
 
-def export_ms(msfile, tb, ms, outfile='uv.npy'):
+def export_ms(msfile, tb, ms, outfile='uv.npy', timescan=False):
     '''Export an ms file to a numpy save file.
 
     Direct copy of Luca Matra's export.
@@ -176,6 +176,8 @@ def export_ms(msfile, tb, ms, outfile='uv.npy'):
     ant2    = tb.getcol("ANTENNA2")
     flags   = tb.getcol("FLAG")
     spwid   = tb.getcol("DATA_DESC_ID")
+    time    = tb.getcol("TIME")
+    scan    = tb.getcol("SCAN_NUMBER")
     tb.close()
     if np.any(flags):
         print("Note: some of the data is FLAGGED")
@@ -237,6 +239,8 @@ def export_ms(msfile, tb, ms, outfile='uv.npy'):
     xc = np.where(ant1 != ant2)[0]
 
     # Select only cross-correlation data
+    time = time[xc]
+    scan = scan[xc]
     data_real = Re[:,xc]
     data_imag = Im[:,xc]
     flags = flags[:,xc]
@@ -260,9 +264,15 @@ def export_ms(msfile, tb, ms, outfile='uv.npy'):
     data_wgts = data_wgts[np.logical_not(flags)]
     data_uu = data_uu[np.logical_not(flags)]
     data_vv = data_vv[np.logical_not(flags)]
+    time = time[np.logical_not(flags[0])]
+    scan = scan[np.logical_not(flags[0])]
 
     # Wrap up all the arrays/matrices we need, (u-v coordinates, complex
     # visibilities, and weights for each visibility) and save them all
     # together in a numpy file
     u, v, Re, Im, w = data_uu, data_vv, data_real, data_imag, data_wgts
-    np.save(outputfilename, [u, v, Re, Im, w])
+    
+    if timescan:
+        np.save(outputfilename, [u, v, Re, Im, w, time, scan])
+    else:
+        np.save(outputfilename, [u, v, Re, Im, w])
