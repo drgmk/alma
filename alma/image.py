@@ -509,6 +509,7 @@ class Image(object):
         self.wavelength = wavelength
         self.pb_diameter = pb_diameter
         self.z_fact = z_fact
+        self.verbose = verbose
 
         # set fixed some things needed to make images
         self.nx, self.ny = self.image_size
@@ -568,7 +569,7 @@ class Image(object):
             self.n_params = len(self.params)
 
         # say something about the model
-        if verbose:
+        if self.verbose:
             print('model:{} with density:{} and emit:{}'.\
                     format(model,dens_model,emit_model))
             print('parameters are {}'.format(self.params))
@@ -663,9 +664,10 @@ class Image(object):
                                      p_[p_start:]) > tol:
                             self.set_rmax(np.tile(r + expand,3),
                                           x0=p[0], y0=p[1])
-                            print('radial r_max: {} pix at {},{}'.\
-                                  format(r,p[0]/self.arcsec_pix,
-                                         p[1]/self.arcsec_pix))
+                            if self.verbose:
+                                print('radial r_max: {} pix at {},{}'.\
+                                      format(r,p[0]/self.arcsec_pix,
+                                             p[1]/self.arcsec_pix))
                             return None
     
         find_radial()
@@ -688,7 +690,8 @@ class Image(object):
             z_sum = np.sum(cube,axis=(0,1))
             zmax = np.max( np.abs( np.where( z_sum/np.max(z_sum) > tol )[0] \
                                    - len(z_sum)//2 ) )
-            print('model x,y,z extent {}, {}, {}'.format(xmax,ymax,zmax))
+            if self.verbose:
+                print('model x,y,z extent {}, {}, {}'.format(xmax,ymax,zmax))
 
             rmax = ( np.array([xmax, ymax, zmax]) + expand ).astype(int)
             self.set_rmax(rmax, x0=p[0], y0=p[1])
