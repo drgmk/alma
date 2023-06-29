@@ -328,15 +328,15 @@ def get_ms_vis(msfilename, xcor=True, acor=False):
     tb.open(msfilename+"/SPECTRAL_WINDOW")
     freqs = tb.getcol("CHAN_FREQ")
     rfreq = tb.getcol("REF_FREQUENCY")
-    wave = 2.9979e8/np.average(rfreq)*1e3
+    wave = 2.9979e8/np.average(rfreq)
     tb.close()
 
     print(str(freqs.shape[1])+" SPWs and Channel 0 frequency of 1st SPW of "+str(rfreq[0]/1e9)+" GHz")
     print("corresponding to "+str(2.9979e8/rfreq[0]*1e3)+" mm")
-    print("Average wavelength is "+str(wave)+" mm")
+    print("Average wavelength is "+str(wave*1e3)+" mm")
 
     if np.max(uvw[0:2, :]) == 0:
-        logging.info('No non-zero baselines, returning')
+        print('No non-zero baselines, returning')
         return [], [], [], [], []
 
     print("Dataset has baselines between "+str(np.min(np.sqrt(uvw[0, :]**2.0+uvw[1, :]**2.0))) +
