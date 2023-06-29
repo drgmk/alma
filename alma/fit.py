@@ -11,7 +11,7 @@ from galario import arcsec
 from . import image
 from . import casa
 
-gd.threads(num=1
+gd.threads(num=1)
 
 """Wrappers to help with fitting and automation.
 
