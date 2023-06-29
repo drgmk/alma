@@ -1397,7 +1397,7 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
     x0 = x_arr - p[0]
     y0 = x_arr - p[1]
     h, _, _ = np.histogram2d(y, x, bins=nxy, range=[y0, x0],
-                             weights=1/np.sqrt(r), normed=True)
+                             weights=1/np.sqrt(r), density=True)
     h = p[5] * h / np.sum(h)
 
     # star if desired
