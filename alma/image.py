@@ -1,6 +1,8 @@
 from __future__ import print_function
 
+from functools import lru_cache
 import numpy as np
+import scipy.interpolate
 
 from . import cube
 
@@ -60,6 +62,86 @@ def rotate_zxz(z1,x,z2):
                   self.nx2-self.rmax[0]:self.nx2+self.rmax[0]] = np.sum(img_cube,axis=2)
             return image
     '''
+
+def convmf(m_in, e_in):
+    """Convert array of mean to true anomaly (for single e).
+
+    From Vallado
+
+    .. todo: tidy and include other orbit cases
+    """
+
+    m = np.array(m_in) % (2. * np.pi)
+    numiter = 50
+    small = 0.00000001
+    if e_in > small:
+
+        ecc = e_in * 1.0
+
+        #       ;; /* ------------  initial guess ------------- */
+        e0 = m + ecc
+        lo = np.logical_or( (m < 0.0) & (m > -np.pi), m > np.pi)
+        e0[lo] = m[lo] - ecc
+
+        ktr = 1
+        e1  = e0 + (m - e0 + ecc * np.sin(e0)) / (1.0 - ecc * np.cos(e0))
+        while (np.max(np.abs(e1 - e0)) > small) & (ktr <= numiter):
+            ktr += 1
+            do = np.abs(e1 - e0) > small
+            e0[do] = e1[do]
+            e1[do] = e0[do] + (m[do] - e0[do] + ecc * np.sin(e0[do])) / (1.0 - ecc * np.cos(e0[do]))
+
+        #       ;; /* ---------  find true anomaly  ----------- */
+        sinv = (np.sqrt(1.0 - ecc * ecc) * np.sin(e1)) / (1.0-ecc * np.cos(e1))
+        cosv = (np.cos(e1) - ecc) / (1.0 - ecc * np.cos(e1))
+        nu   = np.arctan2( sinv, cosv)
+
+    else:
+        #       ;; /* --------------------- circular --------------------- */
+        ktr = 0
+        nu  = m
+        e0  = m
+
+    if ktr > numiter:
+        print('WARNING: convmf did not converge')
+
+    return nu
+
+
+@lru_cache(maxsize=2)
+def convmf_lookup(n=200):
+    '''Return interpolation object for convmf.'''
+    Ms = np.linspace(-np.pi, np.pi, n)
+    es = np.linspace(0, 1, n)
+    f = np.zeros((n,n))
+    for i,m in enumerate(Ms):
+        for j,e in enumerate(es):
+            tmp = convmf([m],e)[0]
+            # some fudges to avoid -pi->pi etc. steps in grid
+            if tmp > np.pi:
+                tmp -= 2*np.pi
+            if i == 0 and tmp == np.pi:
+                tmp -= 2*np.pi
+            f[i,j] = tmp
+
+    return scipy.interpolate.RectBivariateSpline(Ms, es, f)
+
+
+def convmf_fast(m_in, e_in, n=200):
+    '''Convert mean to true anomaly with a lookup table.
+
+    Parameters
+    ----------
+    m_in : float or ndarray
+        Mean anomaly.
+    e_in : float or ndarray
+        Eccentricity.
+    '''
+    m = m_in % (2*np.pi)
+    m[m>=np.pi] -= 2*np.pi
+    convmf_interp = convmf_lookup(n=n)
+    return convmf_interp.ev(m, e_in)
+
 
 class Dens(object):
     '''Define some density functions.
@@ -1211,8 +1293,6 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
         da is Gaussian sigma if True, uniform a0-da/2..a0+da/2 if False.
     '''
 
-    import dd.dynamics # for convmf
-
     # complex forced eccentricity vector
     e_f = e_f0 * np.exp(1j*omega_f0)
 
@@ -1251,7 +1331,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
         return e_f, e_p_vec, e_vec
 
     # true anomaly
-    f = dd.dynamics.convmf_fast(M, e)
+    f = convmf_fast(M, e)
 
     # orbital locations, theta is from forced peri to particle
     r = a * (1-e**2)/(1+e*np.cos(f))
