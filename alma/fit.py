@@ -1,6 +1,7 @@
 import os
 import copy
 import numpy as np
+import pickle
 import emcee
 import multiprocessing
 import scipy.optimize
@@ -12,20 +13,6 @@ from galario import arcsec
 from . import image
 
 gd.threads(num=1)
-
-"""Wrappers to help with fitting and automation.
-
-Bascially a copy of the example jupyter notebook script. A call
-could look something like this.
-
-```
-f = alma.fit.Fit(uv_file='uv.txt')
-f.init_image(p0=[0,0,30,50,0.014,2.2,0.3,0.3])
-f.optimise()
-f.mcmc(nwalk=16, nthreads=4, nsteps=10, burn=5)
-```
-
-"""
 
 class Fit(object):
     """Class for fitting and automation."""
@@ -40,44 +27,80 @@ class Fit(object):
         """
         self.emcee_pos = None
 
+    def save(self, file='fit.pkl'):
+        """Save object for later restoration."""
+        with open(file, 'wb') as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load(cls, file='fit.pkl'):
+        """Load object."""
+        with open(file, 'rb') as f:
+            tmp = pickle.load(f)
+
+        return tmp
+
     def restore_vis(self, npy_file):
         """Restore saved visibilities."""
-        self.u, self.v, self.re, self.im, self.w, self.wavelength = np.load(npy_file, allow_pickle=True)
+        self.u, self.v, self.re, self.im, self.w, self.wavelength, self.ms_files = np.load(npy_file, allow_pickle=True)
         self.get_pix_scale()
 
     def load_vis(self, ms_file, save=None):
-        """Read in a file with visibilities.
+        """Read in ms files with visibilities.
             
         Parameters
         ----------
         ms_file : list of str
             Measurement set with visibilities.
-        img_sz_kwargs : dict
-            Keywords to pass to galario.get_image_size.
+        save : str
+            Save visibilities with name save.
         """
-
         from . import casa
 
         self.u = np.array([])
         self.v = np.array([])
         self.w = np.array([])
         vis = np.array([])
-        self.wavelength = np.array([])
+        wavelength = np.array([])
+        self.ms_files = np.array([])
         for f in ms_file:
             u, v, vv, w, wave = casa.get_ms_vis(f)
+            self.ms_files = np.append(self.ms_files, {os.path.abspath(f): len(self.u)})
             self.u = np.append(self.u, u)
             self.v = np.append(self.v, v)
             self.w = np.append(self.w, w)
             vis = np.append(vis, vv)
-            self.wavelength = np.append(self.wavelength, wave)
+            wavelength = np.append(wavelength, wave)
 
         self.re = np.ascontiguousarray(np.real(vis))
         self.im = np.ascontiguousarray(np.imag(vis))
-        self.wavelength = np.mean(self.wavelength)
+        self.wavelength = np.mean(wavelength)
         self.get_pix_scale()
 
         if save is not None:
-            np.save(save, [self.u, self.v, self.re, self.im, self.w, self.wavelength])
+            np.save(save, np.array([self.u, self.v, self.re, self.im, self.w,
+                                    self.wavelength, self.ms_files], dtype=object))
+
+    def load_model(self, vis_model):
+        """Load model visibilities."""
+        self.model = np.load(vis_model)
+
+    def residual_ms(self):
+        """Subtract model from data and create new ms files."""
+        from . import casa
+
+        ms_files = []
+        istart = []
+        for i, d in enumerate(self.ms_files):
+            f, j = list(d.items())[0]
+            ms_files.append(f)
+            istart.append(j)
+
+        for i, f in enumerate(ms_files):
+            if i+1 == len(ms_files):
+                casa.residual(f, self.model[istart[i]:], ms_new=f'residual{i}.ms')
+            else:
+                casa.residual(f, self.model[istart[i]:istart[i+1]], ms_new=f'residual{i}.ms')
 
     def get_pix_scale(self, img_sz_kwargs={}, ):
         """Get pixel scale and image size from galario.
@@ -120,10 +143,18 @@ class Fit(object):
         # get rmax for these parameters
         self.img.compute_rmax(p0, zero_node=True, **compute_rmax_kwargs)
 
+    def lnprior(self, p):
+        """Priors.
+
+        Intended to be set to an externally defined function
+        that takes p and returns log prior.
+        """
+        return 0
+
     def lnprob(self, p):
         """Log of posterior probability function."""
 
-        for x,r in zip(p, self.img.p_ranges):
+        for x, r in zip(p, self.img.p_ranges):
             if x < r[0] or x > r[1]:
                 return -np.inf
 
@@ -139,7 +170,7 @@ class Fit(object):
 
         # return the merit function, here we require the weights are normally distributed
         # about the model as a Gaussian with the correct normalisation
-        return -0.5 * ( chi2*p[-1] + np.sum(2*np.log(2*np.pi/(self.w*p[-1]))) )
+        return -0.5 * ( chi2*p[-1] + np.sum(2*np.log(2*np.pi/(self.w*p[-1]))) ) + self.lnprior(p)
         #     return -0.5 * chi2
 
     def nlnprob(self, p):
