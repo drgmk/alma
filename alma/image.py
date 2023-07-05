@@ -1035,12 +1035,13 @@ class Image(object):
         
         # star, Gaussian 2pixel FWHM
         if self.star:
-            x, y = np.meshgrid(self.x - x0 / self.arcsec_pix,
-                               self.y - y0 / self.arcsec_pix)
-            rxy2 = x**2 + y**2
-            sigma = 2. / 2.35482
-            image += p[6+self.n_emit_params+self.n_dens_params] * \
-                     np.exp(-0.5*rxy2/sigma**2) / (2*np.pi*sigma**2)
+            if p[6+self.n_emit_params+self.n_dens_params] > 0.0:
+                x, y = np.meshgrid(self.x - x0 / self.arcsec_pix,
+                                   self.y - y0 / self.arcsec_pix)
+                rxy2 = x**2 + y**2
+                sigma = 2. / 2.35482
+                image += p[6+self.n_emit_params+self.n_dens_params] * \
+                         np.exp(-0.5*rxy2/sigma**2) / (2*np.pi*sigma**2)
 
         return image
                       
