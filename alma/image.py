@@ -545,6 +545,7 @@ class Image(object):
                  model='los_image_axisym', emit_model='rj_tail',
                  dens_model='gauss_3d', dens_args={},
                  wavelength=None, pb_diameter=12.0, pb_fits=None,
+                 automask=False,
                  star=False, z_fact=1, verbose=True):
         '''Get an object to make images.
 
@@ -568,6 +569,8 @@ class Image(object):
             Dict of args to be passed to dens.
         emit_model: str
             Emission model to use. Takes no parameters.
+        automask : bool
+            Do automasking to speed up imaging when computing rmax.
         star : bool, optional
             Include a star at the image center.
         wavelength : float
@@ -583,6 +586,7 @@ class Image(object):
                   'interpret offsets carefully!'.format(image_size))
 
         self.image_size = image_size
+        self.automask = automask
         self.model = model
         self.emit_model = emit_model
         self.dens_model = dens_model
@@ -701,7 +705,8 @@ class Image(object):
 
 
     def compute_rmax(self, p, tol=1e-5, expand=10,
-                     radial_only=False, zero_node=False):
+                     radial_only=False, zero_node=False,
+                     automask=False):
         '''Figure out model extent to make image generation quicker.
         
         This routine may be setting the extent used for an entire mcmc
@@ -778,6 +783,11 @@ class Image(object):
             rmax = ( np.array([xmax, ymax, zmax]) + expand ).astype(int)
             self.set_rmax(rmax, x0=p[0], y0=p[1])
 
+            if automask or self.automask:
+                self.mask_setup(np.sum(cube, axis=2), self.arcsec_pix)
+            else:
+                self.mask = None
+
 
     def set_rmax(self, rmax, x0=0, y0=0):
         '''Set rmax and associated things.
@@ -835,6 +845,38 @@ class Image(object):
         # recompute primary beam, to include shift
         if self.wavelength is not None:
             self.set_primary_beam(x0=x0, y0=y0)
+
+
+    def mask_setup(self, image, arcsec_pix, clip=1e-3):
+        """Set up mask.
+
+        Parameters
+        ----------
+        mask : 2d ndarray
+            Image plane mask.
+        arcsec_pix : float
+            Pixel scale of image.
+        clip : float
+            Mask pixels below clip x peak.
+        """
+        from scipy.interpolate import RegularGridInterpolator
+
+        if image.shape[0]*arcsec_pix < self.crop_size[0]*self.arcsec_pix or \
+                image.shape[1]*arcsec_pix < self.crop_size[0]*self.arcsec_pix:
+            print(f' Warning, image mask smaller than cutout')
+
+        x = np.arange(image.shape[0]) - (image.shape[0]-1)/2.
+        y = np.arange(image.shape[1]) - (image.shape[1]-1)/2.
+        rg = RegularGridInterpolator((x*arcsec_pix, y*arcsec_pix), image, bounds_error=False, fill_value=0.0)
+
+        x, y = np.meshgrid(self.x, self.y)
+        xi = np.stack((y*self.arcsec_pix, x*self.arcsec_pix), axis=-1).reshape(-1, 2)
+        mask = rg(np.array(xi)).reshape(self.crop_size[1], self.crop_size[0])
+
+        mx = np.max(mask)
+        mask[mask >= clip*mx] = 1
+        mask[mask < clip*mx] = 0
+        self.mask = np.array(mask, dtype=bool)
 
 
     def analytic_primary_beam_func(self, r):
@@ -988,7 +1030,10 @@ class Image(object):
             rxy2 = x3**2 + y3**2
             rxy = np.sqrt(rxy2)
             r = np.sqrt(rxy2 + z3**2) * self.arcsec_pix
-            az = np.arctan2(y3,x3)
+            if 'axisym' in self.model:
+                az = 0.
+            else:
+                az = np.arctan2(y3,x3)
             el = np.arctan2(z3,rxy)
 
             # the density, dimensions are y, z, x -> y, x, z
@@ -1008,16 +1053,25 @@ class Image(object):
                 x = self.x[i] - x0 / self.arcsec_pix
 
                 # x,y,z locations in original model coords
-                x3 = c0c1c2_s0s2*x + trans1
-                y3 = c0c1s2_s0c2*x + trans2
-                z3 = -c0s1*x + trans3
+                if self.mask is not None:
+                    ind = self.mask[:, i]
+                    x3 = c0c1c2_s0s2*x + trans1[ind]
+                    y3 = c0c1s2_s0c2*x + trans2[ind]
+                    z3 = -c0s1*x + trans3[ind]
+                else:
+                    x3 = c0c1c2_s0s2*x + trans1
+                    y3 = c0c1s2_s0c2*x + trans2
+                    z3 = -c0s1*x + trans3
 
                 # get the spherical polars
                 rxy2 = x3**2 + y3**2
                 rxy = np.sqrt(rxy2)
                 r = np.sqrt(rxy2 + z3**2) * self.arcsec_pix
                 # these two lines are as expensive as dens below
-                az = np.arctan2(y3,x3)
+                if 'axisym' in self.model:
+                    az = 0.
+                else:
+                    az = np.arctan2(y3,x3)
                 el = np.arctan2(z3,rxy)
 
                 # the density in this y,z layer
@@ -1029,7 +1083,10 @@ class Image(object):
                                   )
 
                 # put this in the image
-                image[:,i] = np.sum(layer,axis=1)
+                if self.mask is not None:
+                    image[ind, i] = np.sum(layer, axis=1)
+                else:
+                    image[:, i] = np.sum(layer, axis=1)
 
         image = tot * image / np.sum(image)
         
