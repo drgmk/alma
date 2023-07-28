@@ -6,8 +6,9 @@ import scipy.interpolate
 
 from . import cube
 
-def rotate_zxz(z1,x,z2):
-    '''Return a rotation matrix.
+
+def rotate_zxz(z1, x, z2):
+    """Return a rotation matrix.
         
     Parameters
     ----------
@@ -17,22 +18,22 @@ def rotate_zxz(z1,x,z2):
         Angle for x rotation, in degrees.
     z2 : float
         Angle for second z rotation, in degrees.
-    '''
+    """
     c0 = np.cos(np.deg2rad(z1))
     s0 = np.sin(np.deg2rad(z1))
-    t0 = np.array([ [c0,-s0,0], [s0,c0,0], [0,0,1] ])
+    t0 = np.array([[c0, -s0, 0], [s0, c0, 0], [0, 0, 1]])
 
     c1 = np.cos(np.deg2rad(x))
     s1 = np.sin(np.deg2rad(x))
-    t1 = np.array([ [1,0,0], [0,c1,-s1], [0,s1,c1] ])
+    t1 = np.array([[1, 0, 0], [0, c1, -s1], [0, s1, c1]])
 
     c2 = np.cos(np.deg2rad(z2))
     s2 = np.sin(np.deg2rad(z2))
-    t2 = np.array([ [c2,-s2,0], [s2,c2,0], [0,0,1] ])
+    t2 = np.array([[c2, -s2, 0], [s2, c2, 0], [0, 0, 1]])
 
-    return np.matmul(t2, np.matmul(t1, t0) )
+    return np.matmul(t2, np.matmul(t1, t0))
 
-    '''
+    """
     the following could be used in los_image_full, but is slow
 
         # matrix method, invert (transpose) matrix for X -> x
@@ -61,7 +62,8 @@ def rotate_zxz(z1,x,z2):
             image[self.ny2-self.rmax[1]:self.ny2+self.rmax[1],
                   self.nx2-self.rmax[0]:self.nx2+self.rmax[0]] = np.sum(img_cube,axis=2)
             return image
-    '''
+    """
+
 
 def convmf(m_in, e_in):
     """Convert array of mean to true anomaly (for single e).
@@ -80,11 +82,11 @@ def convmf(m_in, e_in):
 
         #       ;; /* ------------  initial guess ------------- */
         e0 = m + ecc
-        lo = np.logical_or( (m < 0.0) & (m > -np.pi), m > np.pi)
+        lo = np.logical_or((m < 0.0) & (m > -np.pi), m > np.pi)
         e0[lo] = m[lo] - ecc
 
         ktr = 1
-        e1  = e0 + (m - e0 + ecc * np.sin(e0)) / (1.0 - ecc * np.cos(e0))
+        e1 = e0 + (m - e0 + ecc * np.sin(e0)) / (1.0 - ecc * np.cos(e0))
         while (np.max(np.abs(e1 - e0)) > small) & (ktr <= numiter):
             ktr += 1
             do = np.abs(e1 - e0) > small
@@ -94,13 +96,13 @@ def convmf(m_in, e_in):
         #       ;; /* ---------  find true anomaly  ----------- */
         sinv = (np.sqrt(1.0 - ecc * ecc) * np.sin(e1)) / (1.0-ecc * np.cos(e1))
         cosv = (np.cos(e1) - ecc) / (1.0 - ecc * np.cos(e1))
-        nu   = np.arctan2( sinv, cosv)
+        nu = np.arctan2(sinv, cosv)
 
     else:
         #       ;; /* --------------------- circular --------------------- */
         ktr = 0
-        nu  = m
-        e0  = m
+        nu = m
+        e0 = m
 
     if ktr > numiter:
         print('WARNING: convmf did not converge')
@@ -110,25 +112,25 @@ def convmf(m_in, e_in):
 
 @lru_cache(maxsize=2)
 def convmf_lookup(n=200):
-    '''Return interpolation object for convmf.'''
+    """Return interpolation object for convmf."""
     Ms = np.linspace(-np.pi, np.pi, n)
     es = np.linspace(0, 1, n)
-    f = np.zeros((n,n))
-    for i,m in enumerate(Ms):
-        for j,e in enumerate(es):
-            tmp = convmf([m],e)[0]
+    f = np.zeros((n, n))
+    for i, m in enumerate(Ms):
+        for j, e in enumerate(es):
+            tmp = convmf([m], e)[0]
             # some fudges to avoid -pi->pi etc. steps in grid
             if tmp > np.pi:
                 tmp -= 2*np.pi
             if i == 0 and tmp == np.pi:
                 tmp -= 2*np.pi
-            f[i,j] = tmp
+            f[i, j] = tmp
 
     return scipy.interpolate.RectBivariateSpline(Ms, es, f)
 
 
 def convmf_fast(m_in, e_in, n=200):
-    '''Convert mean to true anomaly with a lookup table.
+    """Convert mean to true anomaly with a lookup table.
 
     Parameters
     ----------
@@ -136,15 +138,15 @@ def convmf_fast(m_in, e_in, n=200):
         Mean anomaly.
     e_in : float or ndarray
         Eccentricity.
-    '''
+    """
     m = m_in % (2*np.pi)
-    m[m>=np.pi] -= 2*np.pi
+    m[m >= np.pi] -= 2*np.pi
     convmf_interp = convmf_lookup(n=n)
     return convmf_interp.ev(m, e_in)
 
 
 class Dens(object):
-    '''Define some density functions.
+    """Define some density functions.
         
     These are generally two or three-dimensional, in most cases with a
     Gaussian scale height that is either fixed (to 0.05 by default) or a
@@ -156,12 +158,12 @@ class Dens(object):
     
     These models should peak at or near 1, to aid finding the integration
     box in `compute_rmax`.
-    '''
+    """
 
-    def __init__(self,model='gauss_3d',gaussian_scale_height=0.05,
+    def __init__(self, model='gauss_3d', gaussian_scale_height=0.05,
                  box_half_height=0.05,
                  func=None, params=None, p_ranges=None):
-        '''Get an object to do density.
+        """Get an object to do density.
         
         Parameters
         ----------
@@ -177,16 +179,15 @@ class Dens(object):
             Names of parameters in given func.
         p_ranges : list of pairs
             Allowed ranges of given parameters.
-        '''
+        """
         self.gaussian_scale_height = gaussian_scale_height
         self.box_half_height = box_half_height
         self.select(model=model, func=func, params=params,
                     p_ranges=p_ranges)
 
-
-    def select(self,model=None, func=None, params=None, p_ranges=None,
+    def select(self, model=None, func=None, params=None, p_ranges=None,
                list_models=False):
-        '''Select a density model.
+        """Select a density model.
         
         Parameters
         ----------
@@ -200,57 +201,57 @@ class Dens(object):
             List of ranges for each parameter.
         list_models : bool, optional
             Return list of available models.
-        '''
+        """
 
         models = {
-            'gauss_3d':{'func':self.gauss_3d,
-                        'params':self.gauss_3d_params,
-                        'p_ranges':self.gauss_3d_p_ranges},
-            'gauss_surf_3d':{'func':self.gauss_surf_3d,
-                        'params':self.gauss_surf_3d_params,
-                        'p_ranges':self.gauss_surf_3d_p_ranges},
-            'gauss_ecc_3d':{'func':self.gauss_ecc_3d,
-                            'params':self.gauss_ecc_3d_params,
-                            'p_ranges':self.gauss_ecc_3d_p_ranges},
-            'gauss_ecc_2d':{'func':self.gauss_ecc_2d,
-                            'params':self.gauss_ecc_2d_params,
-                            'p_ranges':self.gauss_ecc_2d_p_ranges},
-            'gauss_2d':{'func':self.gauss_2d,
-                        'params':self.gauss_2d_params,
-                        'p_ranges':self.gauss_2d_p_ranges},
-            'gauss2_3d':{'func':self.gauss2_3d,
-                        'params':self.gauss2_3d_params,
-                        'p_ranges':self.gauss2_3d_p_ranges},
-            'gauss_3d_test':{'func':self.gauss_3d_test,
-                             'params':self.gauss_3d_test_params,
-                             'p_ranges':self.gauss_3d_test_p_ranges},
-            'power_2d':{'func':self.power_2d,
-                        'params':self.power_2d_params,
-                        'p_ranges':self.power_2d_p_ranges},
-            'power_3d_ecc_rin':{'func':self.power_3d_ecc_rin,
-                                'params':self.power_3d_ecc_rin_params,
-                                'p_ranges':self.power_3d_ecc_rin_p_ranges},
-            'power_2d_ecc_rin':{'func':self.power_2d_ecc_rin,
-                                'params':self.power_2d_ecc_rin_params,
-                                'p_ranges':self.power_2d_ecc_rin_p_ranges},
-            'power_3d':{'func':self.power_3d,
-                        'params':self.power_3d_params,
-                        'p_ranges':self.power_3d_p_ranges},
-            'power2_3d':{'func':self.power2_3d,
-                         'params':self.power2_3d_params,
-                         'p_ranges':self.power2_3d_p_ranges},
-            'power2_top_3d':{'func':self.power2_top_3d,
-                         'params':self.power2_top_3d_params,
-                         'p_ranges':self.power2_top_3d_p_ranges},
-            'box_2d':{'func':self.box_2d,
-                        'params':self.box_2d_params,
-                        'p_ranges':self.box_2d_p_ranges},
-            'box_3d':{'func':self.box_3d,
-                        'params':self.box_3d_params,
-                        'p_ranges':self.box_3d_p_ranges},
-            'peri_glow':{'func':self.peri_glow,
-                        'params':self.peri_glow_params,
-                        'p_ranges':self.peri_glow_p_ranges},
+            'gauss_3d': {'func': self.gauss_3d,
+                         'params': self.gauss_3d_params,
+                         'p_ranges': self.gauss_3d_p_ranges},
+            'gauss_surf_3d': {'func': self.gauss_surf_3d,
+                              'params': self.gauss_surf_3d_params,
+                              'p_ranges': self.gauss_surf_3d_p_ranges},
+            'gauss_ecc_3d': {'func': self.gauss_ecc_3d,
+                             'params': self.gauss_ecc_3d_params,
+                             'p_ranges': self.gauss_ecc_3d_p_ranges},
+            'gauss_ecc_2d': {'func': self.gauss_ecc_2d,
+                             'params': self.gauss_ecc_2d_params,
+                             'p_ranges': self.gauss_ecc_2d_p_ranges},
+            'gauss_2d': {'func': self.gauss_2d,
+                         'params': self.gauss_2d_params,
+                         'p_ranges': self.gauss_2d_p_ranges},
+            'gauss2_3d': {'func': self.gauss2_3d,
+                          'params': self.gauss2_3d_params,
+                          'p_ranges': self.gauss2_3d_p_ranges},
+            'gauss_3d_test': {'func': self.gauss_3d_test,
+                              'params': self.gauss_3d_test_params,
+                              'p_ranges': self.gauss_3d_test_p_ranges},
+            'power_2d': {'func': self.power_2d,
+                         'params': self.power_2d_params,
+                         'p_ranges': self.power_2d_p_ranges},
+            'power_3d_ecc_rin': {'func': self.power_3d_ecc_rin,
+                                 'params': self.power_3d_ecc_rin_params,
+                                 'p_ranges': self.power_3d_ecc_rin_p_ranges},
+            'power_2d_ecc_rin': {'func': self.power_2d_ecc_rin,
+                                 'params': self.power_2d_ecc_rin_params,
+                                 'p_ranges': self.power_2d_ecc_rin_p_ranges},
+            'power_3d': {'func': self.power_3d,
+                         'params': self.power_3d_params,
+                         'p_ranges': self.power_3d_p_ranges},
+            'power2_3d': {'func': self.power2_3d,
+                          'params': self.power2_3d_params,
+                          'p_ranges': self.power2_3d_p_ranges},
+            'power2_top_3d': {'func': self.power2_top_3d,
+                              'params': self.power2_top_3d_params,
+                              'p_ranges': self.power2_top_3d_p_ranges},
+            'box_2d': {'func': self.box_2d,
+                       'params': self.box_2d_params,
+                       'p_ranges': self.box_2d_p_ranges},
+            'box_3d': {'func': self.box_3d,
+                       'params': self.box_3d_params,
+                       'p_ranges': self.box_3d_p_ranges},
+            'peri_glow': {'func': self.peri_glow,
+                          'params': self.peri_glow_params,
+                          'p_ranges': self.peri_glow_p_ranges},
                   }
     
         if list_models:
@@ -274,149 +275,149 @@ class Dens(object):
 
     # set the allowed ranges for:
     # radius, width, height, power exponent, eccentricity
-    rr = [0.,np.inf]
-    dr = [0.001,np.inf]
-    dh = [0.01,1.] # radians
-    pr = [-np.inf,np.inf]
-    er = [0.,0.5]
+    rr = [0., np.inf]
+    dr = [0.001, np.inf]
+    dh = [0.01, 1.]  # radians
+    pr = [-np.inf, np.inf]
+    er = [0., 0.5]
 
     # pericenter glow, placeholder for now
     peri_glow_params = ['$a_0$', '$\sigma_a$', '$e_f$', '$i_f$', '$e_p$',
                         '$\sigma_{e,p}$', '$\sigma_{i,p}$']
-    peri_glow_p_ranges = [rr,dr,er,er,er,er,er]
+    peri_glow_p_ranges = [rr, dr, er, er, er, er, er]
     def peri_glow(self, r, az, el, p):
-        '''Placeholder for pericenter glow.'''
+        """Placeholder for pericenter glow."""
         print('Pericenter glow model not available by this method.')
     
     # Gaussian torus and parameters
-    gauss_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
-    gauss_3d_p_ranges = [rr,dr,dh]
+    gauss_3d_params = ['$r_0$', '$\sigma_r$', '$\sigma_h$']
+    gauss_3d_p_ranges = [rr, dr, dh]
     def gauss_3d(self, r, az, el, p):
-        '''Gaussian torus.'''
-        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(el/p[2])**2 )
+        """Gaussian torus."""
+        return np.exp(-0.5*((r-p[0])/p[1])**2) * \
+               np.exp(-0.5*(el/p[2])**2)
 
     # Gaussian torus, Gaussian surface density
-    gauss_surf_3d_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
-    gauss_surf_3d_p_ranges = [rr,dr,dh]
+    gauss_surf_3d_params = ['$r_0$', '$\sigma_r$', '$\sigma_h$']
+    gauss_surf_3d_p_ranges = [rr, dr, dh]
     def gauss_surf_3d(self, r, az, el, p):
-        '''Gaussian torus.'''
-        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(el/p[2])**2 ) / r
+        """Gaussian torus."""
+        return np.exp(-0.5*((r-p[0])/p[1])**2) * \
+               np.exp(-0.5*(el/p[2])**2) / r
 
     # Gaussian torus with fixed scale height and parameters
-    gauss_2d_params = ['$r_0$','$\sigma_r$']
-    gauss_2d_p_ranges = [rr,dr]
+    gauss_2d_params = ['$r_0$', '$\sigma_r$']
+    gauss_2d_p_ranges = [rr, dr]
     def gauss_2d(self, r, az, el, p):
-        '''Gaussian torus with fixed scale height.'''
-        return self.gauss_3d(r,az,el,np.append(p,self.gaussian_scale_height))
+        """Gaussian torus with fixed scale height."""
+        return self.gauss_3d(r, az, el, np.append(p, self.gaussian_scale_height))
 
     # Gaussian in/out torus and parameters
-    gauss2_3d_params = ['$r_0$','$\sigma_{r,in}$',
-                        '$\sigma_{r,out}$','$\sigma_h$']
-    gauss2_3d_p_ranges = [rr,dr,dr,dh]
-    def gauss2_3d(self,r,az,el,p):
-        '''Gaussian torus, independent inner and outer sigma.'''
+    gauss2_3d_params = ['$r_0$', '$\sigma_{r,in}$',
+                        '$\sigma_{r,out}$', '$\sigma_h$']
+    gauss2_3d_p_ranges = [rr, dr, dr, dh]
+    def gauss2_3d(self, r, az, el, p):
+        """Gaussian torus, independent inner and outer sigma."""
         dens = np.zeros(r.shape)
         ok = r < p[0]
         if np.any(ok):
-            dens[ok] = np.exp( -0.5*( (r[ok]-p[0])/p[1] )**2 ) * \
-                       np.exp( -0.5*(el[ok]/p[3])**2 )
+            dens[ok] = np.exp(-0.5*((r[ok]-p[0])/p[1])**2) * \
+                       np.exp(-0.5*(el[ok]/p[3])**2)
         out = np.invert(ok)
         if np.any(out):
-            dens[out] = np.exp( -( 0.5*(r[out]-p[0])/p[2] )**2 ) * \
-                        np.exp( -0.5*(el[out]/p[3])**2 )
+            dens[out] = np.exp(-(0.5*(r[out]-p[0])/p[2])**2) * \
+                        np.exp(-0.5*(el[out]/p[3])**2)
         return dens
 
     # Gaussian torus with wierd azimuthal dependence and parameters
-    gauss_3d_test_params = ['$r_0$','$\sigma_r$','$\sigma_h$']
-    gauss_3d_test_p_ranges = [rr,dr,dh]
-    def gauss_3d_test(self,r,az,el,p):
-        '''Gaussian torus with a test azimuthal dependence.'''
-        return np.exp( -0.5*( (r-p[0])/p[1] )**2 ) * \
-                    np.exp( -0.5*(el/p[2])**2 ) * \
+    gauss_3d_test_params = ['$r_0$', '$\sigma_r$', '$\sigma_h$']
+    gauss_3d_test_p_ranges = [rr, dr, dh]
+    def gauss_3d_test(self, r, az, el, p):
+        """Gaussian torus with a test azimuthal dependence."""
+        return np.exp(-0.5*( (r-p[0])/p[1] )**2) * \
+                    np.exp(-0.5*(el/p[2])**2) * \
                     (az+2*np.pi)%(2*np.pi)
 
     # narrow Gaussian eccentric ring
-    gauss_ecc_3d_params = ['$r_0$','$e$','$\sigma_r$','$\sigma_h$']
-    gauss_ecc_3d_p_ranges = [rr,[0,1],dr,dh]
-    def gauss_ecc_3d(self,r,az,el,p):
-        '''Gaussian eccentric torus, variable width.'''
-        r_ecc = p[0] * ( 1 - p[1]**2 ) / ( 1 + p[1]*np.cos(az) )
-        return np.exp( -0.5*((r-r_ecc)/p[2])**2 )/np.sqrt(2*np.pi)/p[2] * \
-               np.exp( -0.5*( el/p[3] )**2 ) * \
+    gauss_ecc_3d_params = ['$r_0$', '$e$', '$\sigma_r$', '$\sigma_h$']
+    gauss_ecc_3d_p_ranges = [rr, [0, 1], dr, dh]
+    def gauss_ecc_3d(self, r, az, el, p):
+        """Gaussian eccentric torus, variable width."""
+        r_ecc = p[0] * (1 - p[1]**2) / (1 + p[1]*np.cos(az))
+        return np.exp(-0.5*((r-r_ecc)/p[2])**2)/np.sqrt(2*np.pi)/p[2] * \
+               np.exp(-0.5*( el/p[3] )**2) * \
                (1 - p[1]*np.cos(az))
 
     # narrow Gaussian eccentric ring
-    gauss_ecc_2d_params = ['$r_0$','$e$','$\sigma_r$']
-    gauss_ecc_2d_p_ranges = [rr,[0,1],dr]
-    def gauss_ecc_2d(self,r,az,el,p):
-        '''Gaussian eccentric torus, variable width.'''
-        return self.gauss_ecc_3d(r,az,el,np.append(p,self.gaussian_scale_height))
+    gauss_ecc_2d_params = ['$r_0$', '$e$', '$\sigma_r$']
+    gauss_ecc_2d_p_ranges = [rr, [0, 1], dr]
+    def gauss_ecc_2d(self, r, az, el, p):
+        """Gaussian eccentric torus, variable width."""
+        return self.gauss_ecc_3d(r, az, el, np.append(p, self.gaussian_scale_height))
 
     # Single power law torus and parameters
-    power_3d_params = ['$r_{in}$','$r_{out}$','$\\alpha$','$\sigma_h$']
-    power_3d_p_ranges = [rr,rr,pr,dh]
-    def power_3d(self,r,az,el,p):
-        '''Single power law surface density profile with Gaussian scale
-        height.'''
+    power_3d_params = ['$r_{in}$', '$r_{out}$', '$\\alpha$', '$\sigma_h$']
+    power_3d_p_ranges = [rr, rr, pr, dh]
+    def power_3d(self, r, az, el, p):
+        """Single power law surface density profile with Gaussian scale
+        height."""
         in_i = (r > p[0]) & (r < p[1])
-        if isinstance(in_i,(bool,np.bool_)):
-            return float(in_i) * np.exp( -0.5*(el/p[3])**2 )
+        if isinstance(in_i, (bool, np.bool_)):
+            return float(in_i) * np.exp(-0.5*(el/p[3])**2)
         else:
             dens = np.zeros(r.shape)
-            dens[in_i] = r[in_i]**(p[2]-1) * np.exp( -0.5*(el[in_i]/p[3])**2 )
+            dens[in_i] = r[in_i]**(p[2]-1) * np.exp(-0.5*(el[in_i]/p[3])**2)
             return dens
 
     # Single power law torus and parameters
-    power_2d_params = ['$r_{in}$','$r_{out}$','$\\alpha$']
-    power_2d_p_ranges = [rr,rr,pr]
-    def power_2d(self,r,az,el,p):
-        '''Single power law surface density profile with fixed Gaussian
-        scale height.'''
-        return self.power_3d(r,az,el,np.append(p,self.gaussian_scale_height))
+    power_2d_params = ['$r_{in}$', '$r_{out}$', '$\\alpha$']
+    power_2d_p_ranges = [rr, rr, pr]
+    def power_2d(self, r, az, el, p):
+        """Single power law surface density profile with fixed Gaussian
+        scale height."""
+        return self.power_3d(r, az, el, np.append(p, self.gaussian_scale_height))
 
     # Single power law torus with eccentric inner edge and parameters
-    power_3d_ecc_rin_params = ['$r_{in}$','$r_{out}$','$\\alpha$',
-                               '$e_{in}$','$\sigma_h$']
-    power_3d_ecc_rin_p_ranges = [rr,rr,pr,er,dh]
-    def power_3d_ecc_rin(self,r,az,el,p):
-        '''Single power law surface density profile with Gaussian scale 
-        height and eccentric inner edge.'''
-        r_in = p[0] * ( 1 - p[3]**2 ) / ( 1 + p[3]*np.cos(az) )
+    power_3d_ecc_rin_params = ['$r_{in}$', '$r_{out}$', '$\\alpha$',
+                               '$e_{in}$', '$\sigma_h$']
+    power_3d_ecc_rin_p_ranges = [rr, rr, pr, er, dh]
+    def power_3d_ecc_rin(self, r, az, el, p):
+        """Single power law surface density profile with Gaussian scale 
+        height and eccentric inner edge."""
+        r_in = p[0] * (1 - p[3]**2) / (1 + p[3]*np.cos(az))
         in_i = (r > r_in) & (r < p[1])
-        if isinstance(in_i,(bool,np.bool_)):
-            return float(in_i) * np.exp( -0.5*(el/p[4])**2 )
+        if isinstance(in_i, (bool,np.bool_)):
+            return float(in_i) * np.exp(-0.5*(el/p[4])**2)
         else:
             dens = np.zeros(r.shape)
-            dens[in_i] = r[in_i]**(p[2]-1) * np.exp( -0.5*(el[in_i]/p[4])**2 )
+            dens[in_i] = r[in_i]**(p[2]-1) * np.exp(-0.5*(el[in_i]/p[4])**2)
             return dens
 
     # Single power law torus with eccentric inner edge and parameters
-    power_2d_ecc_rin_params = ['$r_{in}$','$r_{out}$','$\\alpha$',
+    power_2d_ecc_rin_params = ['$r_{in}$', '$r_{out}$', '$\\alpha$',
                                '$e_{in}$']
-    power_2d_ecc_rin_p_ranges = [rr,rr,pr,er]
-    def power_2d_ecc_rin(self,r,az,el,p):
-        '''Single power law radial profile with fixed Gaussian scale height
-        and eccentric inner edge.'''
-        return self.power_3d_ecc_rin(r,az,el,np.append(p,self.gaussian_scale_height))
+    power_2d_ecc_rin_p_ranges = [rr, rr, pr, er]
+    def power_2d_ecc_rin(self, r, az, el, p):
+        """Single power law radial profile with fixed Gaussian scale height
+        and eccentric inner edge."""
+        return self.power_3d_ecc_rin(r, az, el, np.append(p, self.gaussian_scale_height))
 
     # Two-power law torus and parameters
-    power2_3d_params = ['$r_0$','$p_{in}$','$p_{out}$','$\sigma_h$']
-    power2_3d_p_ranges = [rr,pr,pr,dh]
-    def power2_3d(self,r,az,el,p):
-        '''Two-power law surface density profile with Gaussian scale
-        height.'''
-        return 1/np.sqrt( (r/p[0])**p[2] + (r/p[0])**(-p[1]) ) * \
-                    np.exp( -0.5*(el/p[3])**2 ) / r
+    power2_3d_params = ['$r_0$', '$p_{in}$', '$p_{out}$', '$\sigma_h$']
+    power2_3d_p_ranges = [rr, pr, pr, dh]
+    def power2_3d(self, r, az, el, p):
+        """Two-power law surface density profile with Gaussian scale
+        height."""
+        return 1/np.sqrt((r/p[0])**p[2] + (r/p[0])**(-p[1])) * \
+                    np.exp(-0.5*(el/p[3])**2) / r
 
     # Two-power top-hat law torus and parameters
-    power2_top_3d_params = ['$r_0$','$p_{in}$','$p_{out}$',
-                           '$\delta_r$','$\sigma_h$']
-    power2_top_3d_p_ranges = [rr,pr,pr,dr,dh]
-    def power2_top_3d(self,r,az,el,p):
-        '''Two-power law top hat surface density profile with Gaussian
-        scale height.'''
+    power2_top_3d_params = ['$r_0$', '$p_{in}$', '$p_{out}$',
+                           '$\delta_r$', '$\sigma_h$']
+    power2_top_3d_p_ranges = [rr, pr, pr, dr, dh]
+    def power2_top_3d(self, r, az, el, p):
+        """Two-power law top hat surface density profile with Gaussian
+        scale height."""
         hw = p[3]/2.0
         w2 = p[3]**2
         return np.sqrt( (2+w2) / ( (r/(p[0]+hw))**(2*p[2]) + w2 +
@@ -424,17 +425,17 @@ class Dens(object):
                   np.exp( -0.5*(el/p[4])**2 ) / r
 
     # Box torus and parameters
-    box_2d_params = ['$r_{in}$','$r_{out}$','$\\alpha$']
-    box_2d_p_ranges = [rr,rr,pr]
-    def box_2d(self,r,az,el,p):
-        '''Box torus in 2d with fixed height.'''
-        return self.box_3d(r,az,el,np.append(p,self.box_half_height))
+    box_2d_params = ['$r_{in}$', '$r_{out}$', '$\\alpha$']
+    box_2d_p_ranges = [rr, rr, pr]
+    def box_2d(self, r, az, el, p):
+        """Box torus in 2d with fixed height."""
+        return self.box_3d(r, az, el, np.append(p, self.box_half_height))
 
     # Box torus and parameters
-    box_3d_params = ['$r_{in}$','$r_{out}$','$\\alpha$','$\delta_h$']
-    box_3d_p_ranges = [rr,rr,pr,dh]
-    def box_3d(self,r,az,el,p):
-        '''Box torus in 3d.'''
+    box_3d_params = ['$r_{in}$', '$r_{out}$', '$\\alpha$', '$\delta_h$']
+    box_3d_p_ranges = [rr, rr, pr, dh]
+    def box_3d(self, r, az, el, p):
+        """Box torus in 3d."""
         in_i = (r > p[0]) & (r < p[1]) & \
                    (np.abs(el) <= p[3]/2.0)
         if isinstance(in_i,(bool,np.bool_)):
@@ -446,22 +447,22 @@ class Dens(object):
 
 
 class Emit(object):
-    '''Define some emission functions.'''
+    """Define some emission functions."""
 
     def __init__(self, model='blackbody'):
-        '''Get an object to do emission properties.
+        """Get an object to do emission properties.
         
         Parameters
         ----------
         model : str, optional
             Name of emission model to use.
-        '''
+        """
         self.select(model)
 
 
     def select(self, model=None, func=None, params=None, p_ranges=None,
                list_models=False):
-        '''Select an emission model.
+        """Select an emission model.
         
         Parameters
         ----------
@@ -475,18 +476,18 @@ class Emit(object):
             List of ranges for each parameter.
         list_models : bool, optional
             Return list of available models.
-        '''
+        """
 
         models = {
-            'rj_tail':{'func':self.rj_tail,
-                       'params':self.rj_tail_params,
-                       'p_ranges':self.rj_tail_p_ranges},
-            'blackbody':{'func':self.blackbody,
-                         'params':self.blackbody_params,
-                         'p_ranges':self.blackbody_p_ranges},
-            'constant':{'func':self.constant,
-                        'params':self.constant_params,
-                        'p_ranges':self.constant_p_ranges}
+            'rj_tail':{'func': self.rj_tail,
+                       'params': self.rj_tail_params,
+                       'p_ranges': self.rj_tail_p_ranges},
+            'blackbody':{'func': self.blackbody,
+                         'params': self.blackbody_params,
+                         'p_ranges': self.blackbody_p_ranges},
+            'constant':{'func': self.constant,
+                        'params': self.constant_params,
+                        'p_ranges': self.constant_p_ranges}
                   }
 
         if list_models:
@@ -513,14 +514,14 @@ class Emit(object):
     rj_tail_params = []
     rj_tail_p_ranges = []
     def rj_tail(self, r, p, wavelength=None):
-        '''Rayleigh-Jeans tail.'''
+        """Rayleigh-Jeans tail."""
         return 1.0/r**0.5
 
     # blackbody
     blackbody_params = ['$r_{T_0}$','$T_0$']
     blackbody_p_ranges = []
     def blackbody(self, r, p, wavelength=None):
-        '''Blackbody, wavelength in m.'''
+        """Blackbody, wavelength in m."""
         k1 = 3.9728949e19
         k2 = 14387.69
         temp = p[1] / np.sqrt(r/p[0])
@@ -533,12 +534,12 @@ class Emit(object):
     constant_params = []
     constant_p_ranges = []
     def constant(self, r, p, wavelength=None):
-        '''Constant.'''
+        """Constant."""
         return 1.0
 
 
 class Image(object):
-    '''Image generation.'''
+    """Image generation."""
 
     def __init__(self,image_size=None, arcsec_pix=None,
                  rmax_arcsec=None, rmax_off=(0,0),
@@ -547,7 +548,7 @@ class Image(object):
                  wavelength=None, pb_diameter=[12.0], pb_fits=None,
                  automask=False,
                  star=False, z_fact=1, verbose=True):
-        '''Get an object to make images.
+        """Get an object to make images.
 
         Parameters
         ----------
@@ -559,7 +560,7 @@ class Image(object):
             Maximum x,y,z extent of model, for speed.
         rmax_off : tuple, optional
             Offset for rmax.
-        zfact : int, optional
+        z_fact : int, optional
             Factor to increase z resolution by.
         model: str
             Integration model to use; includes anomaly or not
@@ -579,7 +580,7 @@ class Image(object):
             List of dish diameters to calculate primary beam, in m.
         pb_fits : str
             Path to fits file of primary beam.
-        '''
+        """
 
         if image_size[0] % 2 != 0 or image_size[1] % 2 != 0:
             print('WARNING: image size {} not even,'
@@ -664,32 +665,32 @@ class Image(object):
 
 
     def select(self,model):
-        '''Select the model we want to use.
+        """Select the model we want to use.
         
         Parameters
         ----------
         model : str
             Name of model to use for image generation.
-        '''
+        """
 
         models = {
-            'los_image':{'fit_func':self.los_image_galario,
-                         'img_func':self.los_image,
-                         'cutout_func':self.los_image_cutout,
-                         'cube':self.los_image_cube,
-                         'rv_cube':self.rv_cube_,
-                         'rv_cube_gal':self.rv_cube_galario_,
-                         'params':self.los_image_params,
-                         'p_ranges':self.los_image_p_ranges
+            'los_image':{'fit_func': self.los_image_galario,
+                         'img_func': self.los_image,
+                         'cutout_func': self.los_image_cutout,
+                         'cube': self.los_image_cube,
+                         'rv_cube': self.rv_cube_,
+                         'rv_cube_gal': self.rv_cube_galario_,
+                         'params': self.los_image_params,
+                         'p_ranges': self.los_image_p_ranges
                         },
-            'los_image_axisym':{'fit_func':self.los_image_galario_axisym,
-                                'img_func':self.los_image_axisym,
-                                'cutout_func':self.los_image_cutout_axisym,
-                                'cube':self.los_image_cube_axisym,
-                                'rv_cube':self.rv_cube_axisym,
-                                'rv_cube_gal':self.rv_cube_galario_axisym,
-                                'params':self.los_image_axisym_params,
-                                'p_ranges':self.los_image_axisym_p_ranges
+            'los_image_axisym':{'fit_func': self.los_image_galario_axisym,
+                                'img_func': self.los_image_axisym,
+                                'cutout_func': self.los_image_cutout_axisym,
+                                'cube': self.los_image_cube_axisym,
+                                'rv_cube': self.rv_cube_axisym,
+                                'rv_cube_gal': self.rv_cube_galario_axisym,
+                                'params': self.los_image_axisym_params,
+                                'p_ranges': self.los_image_axisym_p_ranges
                         }
                   }
 
@@ -707,7 +708,7 @@ class Image(object):
     def compute_rmax(self, p, tol=1e-5, expand=10,
                      radial_only=False, zero_node=False,
                      automask=False):
-        '''Figure out model extent to make image generation quicker.
+        """Figure out model extent to make image generation quicker.
         
         This routine may be setting the extent used for an entire mcmc
         run, so some wiggle room should be allowed for so that the model
@@ -732,7 +733,7 @@ class Image(object):
             Do just a radial calculation of the limits.
         zero_node : bool, optional
             Set ascending node to zero, for galario modelling.
-        '''
+        """
     
         if zero_node:
             p_ = np.append(np.append(p[:2],0), p[3:])
@@ -790,7 +791,7 @@ class Image(object):
 
 
     def set_rmax(self, rmax, x0=0, y0=0):
-        '''Set rmax and associated things.
+        """Set rmax and associated things.
         
         Calculate model limits in full image, and set up some arrays.
         
@@ -802,7 +803,7 @@ class Image(object):
             shift in arcsec (when models are offset in image).
         y0 : int
             shift in arcsec (when models are offset in image).
-        '''
+        """
 
         # check input
         if not isinstance(rmax,np.ndarray):
@@ -880,7 +881,7 @@ class Image(object):
 
 
     def analytic_primary_beam_func(self, r, diameter):
-        '''Analytic radial function for primary beam.
+        """Analytic radial function for primary beam.
         
         Use Gaussian of FWHM 1.13 lambda/D, based on this:
         https://help.almascience.org/index.php?/Knowledgebase/Article/View/234
@@ -889,16 +890,16 @@ class Image(object):
         ----------
         r : array of float
             Radius array, in radians.
-        '''
+        """
         return np.exp(-0.5 * (r / (1.13*self.wavelength/diameter/2.35) )**2)
 
 
     @staticmethod
     def get_empirical_primary_beam_func(file, verb=True):
-        '''Return an interpolation object given a primary beam FITS.
+        """Return an interpolation object given a primary beam FITS.
         
         The object takes radius in radians.
-        '''
+        """
         from astropy.io import fits
         from scipy.optimize import minimize
         from scipy.interpolate import interp1d
@@ -911,7 +912,7 @@ class Image(object):
         aspp = np.abs(h[0].header['CDELT1']*3600)
 
         def get_r(p, im):
-            '''Get radius in radians.'''
+            """Get radius in radians."""
             nx, ny = im.shape
             x = np.arange(nx) - (nx-1)/2. + p[0] / aspp
             y = np.arange(ny) - (ny-1)/2. + p[1] / aspp
@@ -941,7 +942,7 @@ class Image(object):
 
 
     def primary_beam_image(self, x0=0, y0=0):
-        '''Return an image of the primary beam.
+        """Return an image of the primary beam.
 
         Parameters
         ----------
@@ -949,7 +950,7 @@ class Image(object):
             shift in arcsec (when models are offset in image).
         y0 : float
             shift in arcsec (when models are offset in image).
-        '''
+        """
         x = np.arange(self.nx) - (self.nx-1)/2. - x0 / self.arcsec_pix
         y = np.arange(self.ny) - (self.ny-1)/2. - y0 / self.arcsec_pix
         xx,yy = np.meshgrid(x,y)
@@ -962,7 +963,7 @@ class Image(object):
 
 
     def set_primary_beam(self, x0=0, y0=0):
-        '''Set images of the primary beam.
+        """Set images of the primary beam.
             
         This relies on the radial function having been set elsewhere.
 
@@ -972,7 +973,7 @@ class Image(object):
             shift in arcsec (when models are offset in image).
         y0 : float
             shift in arcsec (when models are offset in image).
-        '''
+        """
         
         # primary beam for normal images
         self.pb = self.primary_beam_image()
@@ -985,7 +986,7 @@ class Image(object):
     
 
     def los_image_cutout_(self, p, cube=False):
-        '''Return a cutout image of a disk.
+        """Return a cutout image of a disk.
 
         This is ultimately based on the zodipic code.
         
@@ -996,7 +997,7 @@ class Image(object):
             Distances are in arcsec and angles in degrees.
         cube : bool, optional
             Return cutout image cube (y,z,x) for use elsewhere.
-        '''
+        """
         
         x0, y0, pos, anom, inc, tot = p[:6]
 
@@ -1108,11 +1109,11 @@ class Image(object):
                       
 
     def los_image_cutout(self, p, cube=False):
-        '''Version of los_image_cutout_.
+        """Version of los_image_cutout_.
             
         All calls come through here so this is the only routine where
         the cutout offset is subtracted.
-        '''
+        """
         return self.los_image_cutout_(np.append([p[0]-self.x0_arcsec,
                                                 p[1]-self.y0_arcsec],
                                                p[2:]), cube=cube)
@@ -1125,22 +1126,22 @@ class Image(object):
     los_image_p_ranges = [[-np.inf,np.inf], [-np.inf,np.inf], [-270,270],
                           [-270,270], [0.,120], [0.,np.inf]]
     def los_image(self, p):
-        '''Version of los_image, full parameters'''
+        """Version of los_image, full parameters"""
         img = self.los_image_cutout(p)
         image = np.zeros((self.ny, self.nx))
-        image[self.ny2+self.rmax[1,0]:self.ny2+self.rmax[1,1],
-              self.nx2+self.rmax[0,0]:self.nx2+self.rmax[0,1]] = img
+        image[self.ny2+self.rmax[1, 0]:self.ny2+self.rmax[1, 1],
+              self.nx2+self.rmax[0, 0]:self.nx2+self.rmax[0, 1]] = img
         return image
 
-    los_image_axisym_params = ['$x_0$','$y_0$','$\Omega$','$i$','$F$']
-    los_image_axisym_p_ranges = [[-np.inf,np.inf], [-np.inf,np.inf],
-                                 [-270,270], [0.,120], [0.,np.inf]]
+    los_image_axisym_params = ['$x_0$', '$y_0$', '$\Omega$', '$i$', '$F$']
+    los_image_axisym_p_ranges = [[-np.inf, np.inf], [-np.inf, np.inf],
+                                 [-270, 270], [0., 120], [0., np.inf]]
     def los_image_axisym(self, p):
-        '''Version of los_image, no anomaly dependence in dens.'''
-        return self.los_image(np.append(p[:3],np.append(0.0,p[3:])))
+        """Version of los_image, no anomaly dependence in dens."""
+        return self.los_image(np.append(p[:3], np.append(0.0,p[3:])))
 
     def los_image_galario(self, p, cutout=False):
-        '''Version of los_image for galario, no x/y offset, position angle.
+        """Version of los_image for galario, no x/y offset, position angle.
         
         Galario expects the image center in the center of the pixel to
         the upper right of the actual center (if 0,0 is the lower left).
@@ -1155,9 +1156,9 @@ class Image(object):
             List of parameters.
         cutout : bool
             Return cutout rather than full image.
-        '''
+        """
         img = self.los_image_cutout_(np.append([self.arcsec_pix/2.,
-                                                self.arcsec_pix/2.,0.0],
+                                                self.arcsec_pix/2., 0.0],
                                                p))
         if cutout:
             return img
@@ -1169,27 +1170,27 @@ class Image(object):
         return image
 
     def los_image_galario_axisym(self, p, cutout=False):
-        '''Version of los_image for galario, no x/y offset, postion
+        """Version of los_image for galario, no x/y offset, postion
         angle, or anomaly dependence.
-        '''
-        return self.los_image_galario(np.append([0.0],p), cutout=cutout)
+        """
+        return self.los_image_galario(np.append([0.0], p), cutout=cutout)
 
     def los_image_cube(self, p):
-        '''Version of los_image to return the cube.'''
+        """Version of los_image to return the cube."""
         img = self.los_image_cutout(p, cube=True)
         c = np.zeros((self.ny, self.nx, img.shape[2]))
-        c[self.ny2+self.rmax[1,0]:self.ny2+self.rmax[1,1],
-          self.nx2+self.rmax[0,0]:self.nx2+self.rmax[0,1], :] = img
+        c[self.ny2+self.rmax[1, 0]:self.ny2+self.rmax[1, 1],
+          self.nx2+self.rmax[0, 0]:self.nx2+self.rmax[0, 1], :] = img
         return c
 
     def los_image_cube_axisym(self, p):
-        '''Version of los_image to return the cube.'''
-        return self.los_image_cube(np.append(p[:3],np.append(0.0,p[3:])))
+        """Version of los_image to return the cube."""
+        return self.los_image_cube(np.append(p[:3], np.append(0.0, p[3:])))
 
 
     def rv_cube_cutout_(self, p, rv_min, dv, n_chan, mstar,
                         distance, v_sys=0.0, vff=0.0):
-        '''Return a cutout velocity cube, units of km/s.
+        """Return a cutout velocity cube, units of km/s.
             
         Parameters
         ----------
@@ -1209,7 +1210,7 @@ class Image(object):
             Systemic velocity, in km/s.
         vff : float, optional
             Add "free-fall" (+ve -> star) component.
-        '''
+        """
 
         x0, y0, pos, anom, inc, tot = p[:6]
 
@@ -1261,11 +1262,11 @@ class Image(object):
 
     def rv_cube_cutout(self, p, rv_min, dv, n_chan, mstar,
                        distance, v_sys=0.0, vff=0.0):
-        '''Version of rv_cube_cutout_.
+        """Version of rv_cube_cutout_.
             
         All calls come through here so this is the only routine where
         the cutout offset is subtracted.
-        '''
+        """
         return self.rv_cube_cutout_(np.append([p[0]-self.x0_arcsec,
                                                p[1]-self.y0_arcsec], p[2:]),
                                     rv_min, dv, n_chan, mstar, distance,
@@ -1273,7 +1274,7 @@ class Image(object):
 
     def rv_cube_(self, p, rv_min, dv, n_chan, mstar,
                 distance, v_sys=0.0, vff=0.0):
-        '''Version of rv_cube, full parameters.'''
+        """Version of rv_cube, full parameters."""
         rvc = self.rv_cube_cutout(p, rv_min, dv, n_chan, mstar,
                                   distance, v_sys, vff)
         # put this in the image
@@ -1284,20 +1285,20 @@ class Image(object):
 
     def rv_cube_axisym(self, p, rv_min, dv, n_chan, mstar,
                        distance, v_sys=0.0, vff=0.0):
-        '''Version of rv_cube for axisymmetric disks.'''
+        """Version of rv_cube for axisymmetric disks."""
         return self.rv_cube_(np.append(p[:3],np.append(0.0,p[3:])),
                              rv_min, dv, n_chan, mstar, distance,
                              v_sys, vff)
 
     def rv_cube_galario_(self, p, rv_min, dv, n_chan,
                          mstar, distance, v_sys=0.0, vff=0.0):
-        '''Version of los_image_cube for galario, no x/y offset,
+        """Version of los_image_cube for galario, no x/y offset,
         postion angle.
 
         Galario expects the image center in the center of the pixel to
         the upper right of the actual center, so the center is half a
         pixel away from the actual image center.
-        '''
+        """
 
         rvc = self.rv_cube_cutout_(np.append([self.arcsec_pix/2.,
                                               self.arcsec_pix/2.,
@@ -1312,9 +1313,9 @@ class Image(object):
 
     def rv_cube_galario_axisym(self, p, rv_min, dv, n_chan,
                                mstar, distance, v_sys=0.0, vff=0.0):
-        '''Version of los_image_cube for galario, no x/y offset, postion
+        """Version of los_image_cube for galario, no x/y offset, postion
         angle, or anomaly dependence.
-        '''
+        """
         return self.rv_cube_galario_(np.append([0.0],p), rv_min, dv,
                                      n_chan, mstar, distance, v_sys, vff)
 
@@ -1323,7 +1324,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
                              sigma_ep=0, sigma_ip=0,
                              omega_f0=0, node=0.0, inc=0.0, n=100000,
                              return_e=False, da_gauss=True):
-    '''Return positions of particles in an eccentric ring model.
+    """Return positions of particles in an eccentric ring model.
     
     Parameters
     ----------
@@ -1353,7 +1354,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
         Return eccentricity vectors instead of positions.
     da_gauss : bool
         da is Gaussian sigma if True, uniform a0-da/2..a0+da/2 if False.
-    '''
+    """
 
     # complex forced eccentricity vector
     e_f = e_f0 * np.exp(1j*omega_f0)
@@ -1414,7 +1415,7 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
 
 def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
                          star_fwhm=2, return_e=False, da_gauss=True):
-    '''Return an image of the particle-based eccentric ring model.
+    """Return an image of the particle-based eccentric ring model.
     
     Assumes use of galario where zero is center of pixel above and right
     of actual center, when using origin='lower'.
@@ -1435,7 +1436,7 @@ def eccentric_ring_image(p, nxy, dxy_arcsec, n=100000,
         Return eccentricity vectors instead of an image.
     da_gauss : bool
         da is Gaussian sigma if True, uniform a0-da/2..a0+da/2 if False.
-    '''
+    """
 
     # get the particles
     out = eccentric_ring_positions(p[6], p[7], p[8], p[9], p[10],
