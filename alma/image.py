@@ -544,7 +544,7 @@ class Image(object):
                  rmax_arcsec=None, rmax_off=(0,0),
                  model='los_image_axisym', emit_model='rj_tail',
                  dens_model='gauss_3d', dens_args={},
-                 wavelength=None, pb_diameter=12.0, pb_fits=None,
+                 wavelength=None, pb_diameter=[12.0], pb_fits=None,
                  automask=False,
                  star=False, z_fact=1, verbose=True):
         '''Get an object to make images.
@@ -575,8 +575,8 @@ class Image(object):
             Include a star at the image center.
         wavelength : float
             Wavelength of observations in m, used to create primary beam.
-        pb_diameter : float, optional
-            Dish diameter to calculate primary beam, in m.
+        pb_diameter : list of float, optional
+            List of dish diameters to calculate primary beam, in m.
         pb_fits : str
             Path to fits file of primary beam.
         '''
@@ -879,7 +879,7 @@ class Image(object):
         self.mask = np.array(mask, dtype=bool)
 
 
-    def analytic_primary_beam_func(self, r):
+    def analytic_primary_beam_func(self, r, diameter):
         '''Analytic radial function for primary beam.
         
         Use Gaussian of FWHM 1.13 lambda/D, based on this:
@@ -890,7 +890,7 @@ class Image(object):
         r : array of float
             Radius array, in radians.
         '''
-        return np.exp(-0.5 * ( r / (1.13*self.wavelength/self.pb_diameter/2.35) )**2 )
+        return np.exp(-0.5 * (r / (1.13*self.wavelength/diameter/2.35) )**2)
 
 
     @staticmethod
@@ -954,7 +954,11 @@ class Image(object):
         y = np.arange(self.ny) - (self.ny-1)/2. - y0 / self.arcsec_pix
         xx,yy = np.meshgrid(x,y)
         r = np.sqrt(xx**2 + yy**2) * self.rad_pix
-        return self.primary_beam_func(r)
+        pbs = []
+        for d in self.pb_diameter:
+            pbs.append(self.primary_beam_func(r, d))
+
+        return pbs
 
 
     def set_primary_beam(self, x0=0, y0=0):
