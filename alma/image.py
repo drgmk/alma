@@ -5,7 +5,14 @@ import numpy as np
 import scipy.interpolate
 
 from . import cube
-
+try:
+    import tensorflow as tf
+    from . import image_tf
+    TF = True
+    print('WARNING: using experimental tensorflow image_tf.py',
+          'check density/emit functions are the same')
+except ImportError:
+    TF = False
 
 def rotate_zxz(z1, x, z2):
     """Return a rotation matrix.
@@ -188,7 +195,7 @@ class Dens(object):
     def select(self, model=None, func=None, params=None, p_ranges=None,
                list_models=False):
         """Select a density model.
-        
+
         Parameters
         ----------
         model : str
@@ -546,7 +553,7 @@ class Image(object):
                  model='los_image_axisym', emit_model='rj_tail',
                  dens_model='gauss_3d', dens_args={},
                  wavelength=None, pb_diameter=[12.0], pb_fits=None,
-                 automask=False,
+                 automask=False, tensorflow=TF,
                  star=False, z_fact=1, verbose=True):
         """Get an object to make images.
 
@@ -586,8 +593,10 @@ class Image(object):
             print('WARNING: image size {} not even,'
                   'interpret offsets carefully!'.format(image_size))
 
+        self.tensorflow = tensorflow
         self.image_size = image_size
         self.automask = automask
+        self.mask = None
         self.model = model
         self.emit_model = emit_model
         self.dens_model = dens_model
@@ -998,102 +1007,108 @@ class Image(object):
         cube : bool, optional
             Return cutout image cube (y,z,x) for use elsewhere.
         """
-        
+
         x0, y0, pos, anom, inc, tot = p[:6]
 
-        yarray = self.yarray - y0 / self.arcsec_pix
+        if self.tensorflow:
+            image = image_tf.img(p[:6], self.x, self.yarray, self.zarray, self.arcsec_pix,
+                                 'axisym' in self.model, p[6+self.n_emit_params:], docube=cube)
+            if cube:
+                return image
 
-        # zyz rotation, a.c.w so use -ve angles for cube -> model
-        c0 = np.cos(np.deg2rad(-pos))
-        s0 = np.sin(np.deg2rad(-pos))
-        c1 = np.cos(np.deg2rad(-inc))
-        s1 = np.sin(np.deg2rad(-inc))
-        c2 = np.cos(np.deg2rad(-anom)-np.pi/2) # to get from N to x
-        s2 = np.sin(np.deg2rad(-anom)-np.pi/2)
-        c0c1c2 = c0 * c1 * c2
-        c0c1s2 = c0 * c1 * s2
-        c0s1 = c0 * s1
-        s0s2 = s0 * s2
-        s0c1 = s0 * c1
-        s0c2 = s0 * c2
-        c0c1c2_s0s2 = c0c1c2 - s0s2
-        c0c1s2_s0c2 = c0c1s2 + s0c2
-
-        # x-independent parts of the coordinate transformation
-        trans1 = -(s0c1*c2 + c0*s2)*yarray + s1*c2*self.zarray
-        trans2 = (-s0c1*s2 + c0*c2)*yarray + s1*s2*self.zarray
-        trans3 = s0*s1*yarray + c1*self.zarray
-
-        # cube method, ~50% slower than by layers below
-        if cube:
-            x = self.x - x0 / self.arcsec_pix
-            x3 = c0c1c2_s0s2*x + trans1[:,:,None]
-            y3 = c0c1s2_s0c2*x + trans2[:,:,None]
-            z3 = -c0s1*x + trans3[:,:,None]
-
-            # get the spherical polars
-            rxy2 = x3**2 + y3**2
-            rxy = np.sqrt(rxy2)
-            r = np.sqrt(rxy2 + z3**2) * self.arcsec_pix
-            if 'axisym' in self.model:
-                az = 0.
-            else:
-                az = np.arctan2(y3,x3)
-            el = np.arctan2(z3,rxy)
-
-            # the density, dimensions are y, z, x -> y, x, z
-            cube = self.emit(r,p[slice(6,6+self.n_emit_params)],
-                             wavelength=self.wavelength) * \
-                   self.dens(r,az,el,p[6+self.n_emit_params:])
-            return tot * np.rollaxis(cube, 2, 1) / np.sum(cube)
-    
-        # go through slice by slice and get the flux along an x column
-        # attempts to speed this up using multiprocess.Pool failed
         else:
+            yarray = self.yarray - y0 / self.arcsec_pix
 
-            image = np.zeros((self.crop_size[1],self.crop_size[0]))
+            # zyz rotation, a.c.w so use -ve angles for cube -> model
+            c0 = np.cos(np.deg2rad(-pos))
+            s0 = np.sin(np.deg2rad(-pos))
+            c1 = np.cos(np.deg2rad(-inc))
+            s1 = np.sin(np.deg2rad(-inc))
+            c2 = np.cos(np.deg2rad(-anom)-np.pi/2) # to get from N to x
+            s2 = np.sin(np.deg2rad(-anom)-np.pi/2)
+            c0c1c2 = c0 * c1 * c2
+            c0c1s2 = c0 * c1 * s2
+            c0s1 = c0 * s1
+            s0s2 = s0 * s2
+            s0c1 = s0 * c1
+            s0c2 = s0 * c2
+            c0c1c2_s0s2 = c0c1c2 - s0s2
+            c0c1s2_s0c2 = c0c1s2 + s0c2
 
-            for i in np.arange(self.crop_size[0]):
+            # x-independent parts of the coordinate transformation
+            trans1 = -(s0c1*c2 + c0*s2)*yarray + s1*c2*self.zarray
+            trans2 = (-s0c1*s2 + c0*c2)*yarray + s1*s2*self.zarray
+            trans3 = s0*s1*yarray + c1*self.zarray
 
-                x = self.x[i] - x0 / self.arcsec_pix
-
-                # x,y,z locations in original model coords
-                if self.mask is not None:
-                    ind = self.mask[:, i]
-                    x3 = c0c1c2_s0s2*x + trans1[ind]
-                    y3 = c0c1s2_s0c2*x + trans2[ind]
-                    z3 = -c0s1*x + trans3[ind]
-                else:
-                    x3 = c0c1c2_s0s2*x + trans1
-                    y3 = c0c1s2_s0c2*x + trans2
-                    z3 = -c0s1*x + trans3
+            # cube method, ~50% slower than by layers below
+            if cube:
+                x = self.x - x0 / self.arcsec_pix
+                x3 = c0c1c2_s0s2*x + trans1[:,:,None]
+                y3 = c0c1s2_s0c2*x + trans2[:,:,None]
+                z3 = -c0s1*x + trans3[:,:,None]
 
                 # get the spherical polars
                 rxy2 = x3**2 + y3**2
                 rxy = np.sqrt(rxy2)
                 r = np.sqrt(rxy2 + z3**2) * self.arcsec_pix
-                # these two lines are as expensive as dens below
                 if 'axisym' in self.model:
                     az = 0.
                 else:
                     az = np.arctan2(y3,x3)
                 el = np.arctan2(z3,rxy)
 
-                # the density in this y,z layer
-                layer = self.emit(r,p[slice(6,6+self.n_emit_params)],
-                                  wavelength=self.wavelength) * \
-                        self.dens(r,az,el,
-                                  p[slice(6+self.n_emit_params,
-                                          6+self.n_emit_params+self.n_dens_params)]
-                                  )
+                # the density, dimensions are y, z, x -> y, x, z
+                cube_ = self.emit(r,p[slice(6,6+self.n_emit_params)],
+                                 wavelength=self.wavelength) * \
+                       self.dens(r,az,el,p[6+self.n_emit_params:])
+                return tot * np.rollaxis(cube_, 2, 1) / np.sum(cube_)
 
-                # put this in the image
-                if self.mask is not None:
-                    image[ind, i] = np.sum(layer, axis=1)
-                else:
-                    image[:, i] = np.sum(layer, axis=1)
+            # go through slice by slice and get the flux along an x column
+            # attempts to speed this up using multiprocess.Pool failed
+            else:
 
-        image = tot * image / np.sum(image)
+                image = np.zeros((self.crop_size[1],self.crop_size[0]))
+
+                for i in np.arange(self.crop_size[0]):
+
+                    x = self.x[i] - x0 / self.arcsec_pix
+
+                    # x,y,z locations in original model coords
+                    if self.mask is not None:
+                        ind = self.mask[:, i]
+                        x3 = c0c1c2_s0s2*x + trans1[ind]
+                        y3 = c0c1s2_s0c2*x + trans2[ind]
+                        z3 = -c0s1*x + trans3[ind]
+                    else:
+                        x3 = c0c1c2_s0s2*x + trans1
+                        y3 = c0c1s2_s0c2*x + trans2
+                        z3 = -c0s1*x + trans3
+
+                    rxy2 = x3**2 + y3**2
+                    rxy = np.sqrt(rxy2)
+                    r = np.sqrt(rxy2 + z3**2) * self.arcsec_pix
+                    # these two lines are as expensive as dens below
+                    if 'axisym' in self.model:
+                        az = 0.
+                    else:
+                        az = np.arctan2(y3,x3)
+                    el = np.arctan2(z3,rxy)
+
+                    # the density in this y,z layer
+                    layer = self.emit(r,p[slice(6,6+self.n_emit_params)],
+                                      wavelength=self.wavelength) * \
+                            self.dens(r,az,el,
+                                      p[slice(6+self.n_emit_params,
+                                              6+self.n_emit_params+self.n_dens_params)]
+                                      )
+
+                    # put this in the image
+                    if self.mask is not None:
+                        image[ind, i] = np.sum(layer, axis=1)
+                    else:
+                        image[:, i] = np.sum(layer, axis=1)
+
+                image = tot * image / np.sum(image)
         
         # star, Gaussian 2pixel FWHM
         if self.star:
