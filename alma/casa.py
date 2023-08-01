@@ -379,7 +379,7 @@ def export_ms(msfile, tb, ms, outfile='uv.npy', timescan=False):
         np.save(outputfilename, [u, v, Re, Im, w])
 
 
-def get_ms_vis(msfilename, xcor=True, acor=False):
+def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True):
     """Direct copy of Luca Matra's export.
     https://github.com/dlmatra/miao
     """
