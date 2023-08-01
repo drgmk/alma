@@ -524,8 +524,8 @@ def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True):
             wgt_mean = np.mean(data_wgts[ok])
             data_std = np.std(vis[ok])
             rew = (1/data_std**2)/wgt_mean
-            logging.info(f're-weighting spw {s}: mean:{wgt_mean}, std:{data_std}')
-            logging.info(f're-weighting spw {s} value (1dof): {rew}')
+            print(f're-weighting spw {s}: mean:{wgt_mean}, std:{data_std}')
+            print(f're-weighting spw {s} value (1dof): {rew}')
             data_wgts[ok] *= rew
 
     return data_uu, data_vv, vis, data_wgts, wave

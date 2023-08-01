@@ -93,7 +93,7 @@ class Fit(object):
             self.ms_files.append(f)
 
             if save_files is not None:
-                np.save(save_files[i], np.array([u_, v_, vis_.real, vis_.imag, w,
+                np.save(save_files[i], np.array([u_, v_, vis_.real, vis_.imag, w_,
                                                 wavelength_, f], dtype=object))
 
         self.wavelength = np.mean(wavelength)
