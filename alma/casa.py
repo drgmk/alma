@@ -49,9 +49,15 @@ def residual_standalone(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
     # the 2 is two polarisations
     tb.open(ms_new, nomodify=False)
     data = tb.getcol(datacolumn)
+    flags = tb.getcol('FLAG')
     nchan = data.shape[1]
     nrow = data.shape[2]
-    print('Opened ms file with {} channels, {} rows'.format(nchan,nrow))
+    print(f'Opened ms file with {nchan} channels, {nrow} rows')
+    print(f'  some ({np.sum(flags)}={np.sum(np.any(f, axis=(0, 1)))//nchan} rows) data are flagged')
+
+    # some rows will have been flagged
+    flagrow = np.sum(np.any(f, axis=(0, 1)))//nchan
+    nrow -= flagrow
 
     # open the model visibilities, which is a vector nchan x nrow long
     # of complex visibilities, and each row is tiled nchan times.
@@ -61,7 +67,12 @@ def residual_standalone(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
     vis_mod = vis_mod.reshape(nchan, nrow)
 
     # subtract model from each polarisation
-    sub = data - vis_mod
+    flags2d = np.logical_or(flags[0, :, :], flags[1, :, :])
+    flags2d = np.array([flags2d, flags2d])
+    vis_mod = np.array([vis_mod, vis_mod])
+    sub = data
+    sub[np.logical_not(flags2d)] = data[np.logical_not(flags2d)] - vis_mod.flatten()
+    sub.reshape(2, nchan, nrow+flagrow)
 
     # put the data back in the table and close
     tb.putcol(datacolumn, sub)
@@ -102,18 +113,30 @@ def residual(ms, vis_mod, datacolumn='DATA',
     # the 2 is two polarisations
     tb.open(ms_new, nomodify=False)
     data = tb.getcol(datacolumn)
+    flags = tb.getcol('FLAG')
     nchan = data.shape[1]
     nrow = data.shape[2]
-    print('Opened ms file with {} channels, {} rows'.format(nchan,nrow))
+    print(f'Opened ms file with {nchan} channels, {nrow} rows')
+    print(f'  some ({np.sum(flags)}={np.sum(np.any(f, axis=(0, 1)))//nchan} rows) data are flagged')
+
+    # some rows will have been flagged
+    flagrow = np.sum(np.any(f, axis=(0, 1)))//nchan
+    nrow -= flagrow
 
     # open the model visibilities, which is a vector nchan x nrow long
     # of complex visibilities, and each row is tiled nchan times.
     # reshape for subtraction to [nchan,nrow]
-    print('Model with shape {}'.format(vis_mod.shape))
+    vis_mod = np.load(vis_model)
+    print('Opened model file with shape {}'.format(vis_mod.shape))
     vis_mod = vis_mod.reshape(nchan, nrow)
 
     # subtract model from each polarisation
-    sub = data - vis_mod
+    flags2d = np.logical_or(flags[0, :, :], flags[1, :, :])
+    flags2d = np.array([flags2d, flags2d])
+    vis_mod = np.array([vis_mod, vis_mod])
+    sub = data
+    sub[np.logical_not(flags2d)] = data[np.logical_not(flags2d)] - vis_mod.flatten()
+    sub.reshape(2, nchan, nrow+flagrow)
 
     # put the data back in the table and close
     tb.putcol(datacolumn, sub)
@@ -302,6 +325,7 @@ def export_ms(msfile, tb, ms, outfile='uv.npy', timescan=False):
 
     # Select only cross-correlation data
     time = time[xc]
+    spws = spwid[xc]
     scan = scan[xc]
     data_real = Re[:,xc]
     data_imag = Im[:,xc]
@@ -310,6 +334,8 @@ def export_ms(msfile, tb, ms, outfile='uv.npy', timescan=False):
     data_uu = uu[:,xc]
     data_vv = vv[:,xc]
     data_wgts=np.reshape(np.repeat(wgts[xc], uu.shape[0]), data_uu.shape)
+    time = np.tile(time, data_uu.shape[0]).reshape(data_uu.shape[0], -1)
+    spws = np.tile(spws, data_uu.shape[0]).reshape(data_uu.shape[0], -1)
 
     # Delete previously used (and not needed) variables (to free up some memory?)
     del Re
@@ -326,8 +352,21 @@ def export_ms(msfile, tb, ms, outfile='uv.npy', timescan=False):
     data_wgts = data_wgts[np.logical_not(flags)]
     data_uu = data_uu[np.logical_not(flags)]
     data_vv = data_vv[np.logical_not(flags)]
-    time = time[np.logical_not(flags[0])]
-    scan = scan[np.logical_not(flags[0])]
+    time = time[np.logical_not(flags)]
+    spws = spws[np.logical_not(flags)]
+    # scan = scan[np.logical_not(flags[0])]
+
+    # re-weighting as suggested by Loomis+
+    if reweight:
+        spw_u = np.unique(spws)
+        for s in spw_u:
+            ok = spws == s
+            wgt_mean = np.mean(data_wgts[ok])
+            data_std = np.std(vis[ok])
+            rew = (1/data_std**2)/wgt_mean
+            logging.info(f're-weighting spw {s}: mean:{wgt_mean}, std:{data_std}')
+            logging.info(f're-weighting spw {s} value (1dof): {rew}')
+            data_wgts[ok] *= rew
 
     # Wrap up all the arrays/matrices we need, (u-v coordinates, complex
     # visibilities, and weights for each visibility) and save them all
@@ -441,6 +480,7 @@ def get_ms_vis(msfilename, xcor=True, acor=False):
 
     # Select data
     time = time[xc]
+    spws = spwid[xc]
     # scan = scan[xc]
     data_real = Re[:, xc]
     data_imag = Im[:, xc]
@@ -450,6 +490,7 @@ def get_ms_vis(msfilename, xcor=True, acor=False):
     data_vv = vv[:, xc]
     data_wgts = np.reshape(np.repeat(wgts[xc], uu.shape[0]), data_uu.shape)
     time = np.tile(time, data_uu.shape[0]).reshape(data_uu.shape[0], -1)
+    spws = np.tile(spws, data_uu.shape[0]).reshape(data_uu.shape[0], -1)
 
     # Select only data that is NOT flagged, this step has the unexpected
     # effect of flattening the arrays to 1d
@@ -460,6 +501,7 @@ def get_ms_vis(msfilename, xcor=True, acor=False):
     data_uu = data_uu[np.logical_not(flags)]
     data_vv = data_vv[np.logical_not(flags)]
     time = time[np.logical_not(flags)]
+    spws = spws[np.logical_not(flags)]
     # scan = scan[np.logical_not(flags[0])]
 
     time /= (24*60*60)  # to MJD
@@ -472,12 +514,18 @@ def get_ms_vis(msfilename, xcor=True, acor=False):
     vis = vis[srt]
     data_wgts = data_wgts[srt]
     time = time[srt]
+    spws = spws[srt]
 
     # re-weighting as suggested by Loomis+
-    wgt_mean = np.mean(data_wgts)
-    data_std = np.std(vis)
-    rew = (1/data_std**2)/wgt_mean
-    print(f're-weighting value (1dof): {rew}')
-    data_wgts *= rew
+    if reweight:
+        spw_u = np.unique(spws)
+        for s in spw_u:
+            ok = spws == s
+            wgt_mean = np.mean(data_wgts[ok])
+            data_std = np.std(vis[ok])
+            rew = (1/data_std**2)/wgt_mean
+            logging.info(f're-weighting spw {s}: mean:{wgt_mean}, std:{data_std}')
+            logging.info(f're-weighting spw {s} value (1dof): {rew}')
+            data_wgts[ok] *= rew
 
     return data_uu, data_vv, vis, data_wgts, wave

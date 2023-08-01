@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pickle
 import emcee
-import multiprocessing
+import multiprocessing as mp
 import scipy.optimize
 import matplotlib.pyplot as plt
 import corner
@@ -40,46 +40,66 @@ class Fit(object):
 
         return tmp
 
+    def get_ant_diams(self, ms_files):
+        self.ant_diam = []
+        for f in self.ms_files:
+            if '12m' in f:
+                self.ant_diam.append(12)
+            elif 'ACA' in f:
+                self.ant_diam.append(7)
+            else:
+                exit(f'dont know any diam for file {f}')
+
     def restore_vis(self, npy_file):
         """Restore saved visibilities."""
-        self.u, self.v, self.re, self.im, self.w, self.wavelength, self.ms_files = np.load(npy_file, allow_pickle=True)
+        # global u, v, re, im, w
+        u, v, re, im, w, self.wavelength, self.ms_files = np.load(npy_file, allow_pickle=True)
+        self.u, self.v, self.re, self.im, self.w = u, v, re, im, w
+        self.get_ant_diams(self.ms_files)
         self.get_pix_scale()
 
-    def load_vis(self, ms_file, save=None):
+    def load_vis(self, ms_files, save_files=None):
         """Read in ms files with visibilities.
             
         Parameters
         ----------
-        ms_file : list of str
-            Measurement set with visibilities.
-        save : str
-            Save visibilities with name save.
+        ms_files : list of str
+            Measurement sets with visibilities.
+        save_files : list of str
+            Save visibilities with names.
         """
         from . import casa
 
-        self.u = np.array([])
-        self.v = np.array([])
-        self.w = np.array([])
-        vis = np.array([])
-        wavelength = np.array([])
-        self.ms_files = np.array([])
-        for f in ms_file:
-            u, v, vv, w, wave = casa.get_ms_vis(f)
-            self.ms_files = np.append(self.ms_files, {os.path.abspath(f): len(self.u)})
-            self.u = np.append(self.u, u)
-            self.v = np.append(self.v, v)
-            self.w = np.append(self.w, w)
-            vis = np.append(vis, vv)
-            wavelength = np.append(wavelength, wave)
+        if save_files is not None:
+            if len(ms_files) != len(save_files):
+                print('need list of ms and save files to be the same length')
+                return
 
-        self.re = np.ascontiguousarray(np.real(vis))
-        self.im = np.ascontiguousarray(np.imag(vis))
+        self.u = []
+        self.v = []
+        self.re = []
+        self.im = []
+        self.w = []
+        wavelength = []
+        self.ms_files = []
+        for i, f in enumerate(ms_files):
+            u_, v_, vis_, w_, wavelength_ = casa.get_ms_vis(f)
+            self.u.append(u_)
+            self.v.append(v_)
+            self.re.append(np.ascontiguousarray(np.real(vis_)))
+            self.im.append(np.ascontiguousarray(np.imag(vis_)))
+            self.w.append(w_)
+            wavelength.append(wavelength_)
+            self.ms_files.append(f)
+
+            if save_files is not None:
+                np.save(save_files[i], np.array([u_, v_, vis_.real, vis_.imag, w,
+                                                wavelength_, f], dtype=object))
+
         self.wavelength = np.mean(wavelength)
+        self.get_ant_diams(self.ms_files)
         self.get_pix_scale()
 
-        if save is not None:
-            np.save(save, np.array([self.u, self.v, self.re, self.im, self.w,
-                                    self.wavelength, self.ms_files], dtype=object))
 
     def load_model(self, vis_model):
         """Load model visibilities."""
@@ -102,7 +122,7 @@ class Fit(object):
             else:
                 casa.residual(f, self.model[istart[i]:istart[i+1]], ms_new=f'residual{i}.ms')
 
-    def get_pix_scale(self, img_sz_kwargs={}, ):
+    def get_pix_scale(self, img_sz_kwargs={}):
         """Get pixel scale and image size from galario.
 
         Parameters
@@ -110,38 +130,59 @@ class Fit(object):
         img_sz_kwargs : dict
             Keywords to pass to galario.get_image_size.
         """
-        self.nxy, self.dxy = gd.get_image_size(self.u, self.v,
-                                               **img_sz_kwargs,
-                                               verbose=True)
+        self.nxy, self.dxy = gd.get_image_size(np.hstack(self.u), np.hstack(self.v),
+                                               **img_sz_kwargs, verbose=True)
         self.dxy_arcsec = self.dxy / arcsec
 
-    def init_image(self, p0=None,
-                   image_kwargs={'dens_model': 'gauss_3d',},
-                   compute_rmax_kwargs={}):
+    def init_image(self, image_kwargs={'dens_model': 'gauss_3d'}):
         """Initialise Image object.
         
         Parameters
         ----------
-        p0 : list
-            List of initial parameters.
         **image_kwargs : dict
             Args to pass on to image.Image.
-        **compute_rmax_kwargs : dict
-            Args to pass on to image.Image.compute_rmax.
         """
         self.img = image.Image(arcsec_pix=self.dxy_arcsec,
                                image_size=(self.nxy, self.nxy),
                                wavelength=self.wavelength,
+                               pb_diameter=self.ant_diam,
                                **image_kwargs)
 
+    def init_image_params(self, p0, verbose=True, compute_rmax_kwargs={}):
+        """Set image model parameters.
+
+        Parameters
+        ----------
+        p0 : list
+            List of initial parameters.
+        **compute_rmax_kwargs : dict
+            Args to pass on to image.Image.compute_rmax.
+        """
         # add re-weighting factor
         self.p0 = np.array(p0 + [1])
         self.img.params += ['$f_{w}$']
         self.img.p_ranges += [[0, 10]]
         self.img.n_params += 1
 
+        if verbose:
+            print(f'parameters and ranges for {self.img.model}')
+            for i in range(self.img.n_params):
+                print(f'{i}\t{self.img.params[i]}\t\t{self.p0[i]}\t{self.img.p_ranges[i]}')
+
         # get rmax for these parameters
-        self.img.compute_rmax(p0, zero_node=True, **compute_rmax_kwargs)
+        self.img.compute_rmax(p0, zero_node=True, automask=True, **compute_rmax_kwargs)
+
+    def plot_model(self, pin=None):
+        if pin is None:
+            p = self.p0
+        else:
+            p = pin
+        fig, ax = plt.subplots()
+        img = self.img.image_galario(p[3:-1])
+        ax.imshow(img[self.img.cc_gal], origin='lower')
+        ax.contour(np.array(self.img.mask, dtype=float), origin='lower')
+        fig.tight_layout()
+        # fig.show()
 
     def lnprior(self, p):
         """Priors.
@@ -154,24 +195,25 @@ class Fit(object):
     def lnprob(self, p):
         """Log of posterior probability function."""
 
+        # global u, v, re, im, w
+
         for x, r in zip(p, self.img.p_ranges):
             if x < r[0] or x > r[1]:
                 return -np.inf
 
-        # we generate the image with PA = North, origin in lower left,
-        # and including primary beam correction
-        image = self.img.image_galario(p[3:]) * self.img.pb_galario
+        # galario
+        chi2 = 0
+        img = self.img.image_galario(p[3:-1])
+        for i in range(len(self.ms_files)):
+            chi2 += gd.chi2Image(img * self.img.pb_galario[i],
+                                 self.dxy, self.u[i], self.v[i], self.re[i], self.im[i], self.w[i],
+                                 dRA=p[0]*arcsec, dDec=p[1]*arcsec, PA=np.deg2rad(p[2]), origin='lower')
+        prob = -0.5 * (chi2*p[-1] + np.sum(2*np.log(2*np.pi/(np.hstack(self.w)*p[-1]))))
 
-        # galario translates and rotates it for us
-        chi2 = gd.chi2Image(image,
-                            self.dxy, self.u, self.v, self.re, self.im, self.w,
-                            origin='lower',
-                            dRA=p[0]*arcsec, dDec=p[1]*arcsec, PA=np.deg2rad(p[2]))
+        if np.isnan(prob):
+            print(f'nan lnprob for parameters: {p}')
 
-        # return the merit function, here we require the weights are normally distributed
-        # about the model as a Gaussian with the correct normalisation
-        return -0.5 * ( chi2*p[-1] + np.sum(2*np.log(2*np.pi/(self.w*p[-1]))) ) + self.lnprior(p)
-        #     return -0.5 * chi2
+        return prob + self.lnprior(p)
 
     def nlnprob(self, p):
         """Negative log probability, for minimising."""
@@ -212,7 +254,7 @@ class Fit(object):
         if nwalk is None:
             nwalk = self.img.n_params * 2
 
-        with multiprocessing.Pool(processes=nthreads) as pool:
+        with mp.Pool(processes=nthreads) as pool:
             sampler = emcee.EnsembleSampler(nwalk, self.img.n_params,
                                             self.lnprob, pool=pool)
             if self.emcee_pos is None or restart:

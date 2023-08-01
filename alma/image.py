@@ -5,6 +5,8 @@ import numpy as np
 import scipy.interpolate
 
 from . import cube
+
+# try using tensorflow to speed up images
 try:
     import tensorflow as tf
     from . import image_tf
@@ -13,6 +15,7 @@ try:
           'check density/emit functions are the same')
 except ImportError:
     TF = False
+
 
 def rotate_zxz(z1, x, z2):
     """Return a rotation matrix.
