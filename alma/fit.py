@@ -25,7 +25,13 @@ class Fit(object):
         ms_file : str or list of str
             Measurement set(s) with visibilities.
         """
-        self.emcee_pos = None
+        self.backend = None
+        self.mcmc_savename = 'mcmc.h5'
+
+    def set_outdir(self, outdir):
+        if not os.path.exists(outdir):
+            os.mkdir(outdir)
+        self.out_dir = outdir
 
     def save(self, file='fit.pkl'):
         """Save object for later restoration."""
@@ -50,13 +56,25 @@ class Fit(object):
             else:
                 exit(f'dont know any diam for file {f}')
 
-    def restore_vis(self, npy_file):
+    def restore_vis(self, npy_files, img_sz_kwargs={}):
         """Restore saved visibilities."""
         # global u, v, re, im, w
-        u, v, re, im, w, self.wavelength, self.ms_files = np.load(npy_file, allow_pickle=True)
-        self.u, self.v, self.re, self.im, self.w = u, v, re, im, w
+        self.u, self.v, self.re, self.im, self.w = [], [], [], [], []
+        self.ms_files = []
+        wavelength = []
+        for f in npy_files:
+            u_, v_, Re_, Im_, w_, wavelength_, ms_file_ = np.load(f, allow_pickle=True)
+            self.u.append(u_)
+            self.v.append(v_)
+            self.w.append(w_)
+            self.re.append(Re_)
+            self.im.append(Im_)
+            self.ms_files.append(ms_file_)
+            wavelength.append(wavelength_)
+
+        self.wavelength = np.mean(wavelength)
         self.get_ant_diams(self.ms_files)
-        self.get_pix_scale()
+        self.get_pix_scale(img_sz_kwargs)
 
     def load_vis(self, ms_files, save_files=None):
         """Read in ms files with visibilities.
@@ -75,11 +93,7 @@ class Fit(object):
                 print('need list of ms and save files to be the same length')
                 return
 
-        self.u = []
-        self.v = []
-        self.re = []
-        self.im = []
-        self.w = []
+        self.u, self.v, self.re, self.im, self.w = [], [], [], [], []
         wavelength = []
         self.ms_files = []
         for i, f in enumerate(ms_files):
@@ -90,7 +104,7 @@ class Fit(object):
             self.im.append(np.ascontiguousarray(np.imag(vis_)))
             self.w.append(w_)
             wavelength.append(wavelength_)
-            self.ms_files.append(f)
+            self.ms_files.append(os.path.abspath(f))
 
             if save_files is not None:
                 np.save(save_files[i], np.array([u_, v_, vis_.real, vis_.imag, w_,
@@ -134,7 +148,8 @@ class Fit(object):
                                                **img_sz_kwargs, verbose=True)
         self.dxy_arcsec = self.dxy / arcsec
 
-    def init_image(self, image_kwargs={'dens_model': 'gauss_3d'}):
+    def init_image(self, p0=None, image_kwargs={'dens_model': 'gauss_3d'},
+                   compute_rmax_kwargs={}):
         """Initialise Image object.
         
         Parameters
@@ -148,7 +163,22 @@ class Fit(object):
                                pb_diameter=self.ant_diam,
                                **image_kwargs)
 
-    def init_image_params(self, p0, verbose=True, compute_rmax_kwargs={}):
+        # restore/set parameters
+        self.savefile = f'{self.out_dir}/{self.mcmc_savename}'
+        if os.path.exists(self.savefile):
+            self.backend = emcee.backends.HDFBackend(self.savefile)
+            if self.backend.iteration > 0:
+                self.init_mcmc()
+                self.init_image_params()
+
+
+        if not hasattr(self, 'mcmc_p0'):
+            self.init_image_params(p0=p0)
+            self.init_mcmc(nwalkers=int(np.max([os.cpu_count(), self.img.n_params*2])))
+
+        self.compute_rmax(compute_rmax_kwargs)
+
+    def init_image_params(self, p0=None, verbose=True, compute_rmax_kwargs={}):
         """Set image model parameters.
 
         Parameters
@@ -158,25 +188,30 @@ class Fit(object):
         **compute_rmax_kwargs : dict
             Args to pass on to image.Image.compute_rmax.
         """
-        # add re-weighting factor
-        self.p0 = np.array(p0 + [1])
+        if not hasattr(self, 'p0'):
+            self.p0 = p0
+
+        # add re-weighting factor (if it isn't there already)
+        if len(self.p0) == self.img.n_params:
+            self.p0 = np.append(self.p0, 1)
         self.img.params += ['$f_{w}$']
-        self.img.p_ranges += [[0, 10]]
+        self.img.p_ranges += [[0.9, 1.1]]
         self.img.n_params += 1
 
         if verbose:
-            print(f'parameters and ranges for {self.img.model}')
+            print(f'parameters and ranges for {self.img.dens_model}')
             for i in range(self.img.n_params):
                 print(f'{i}\t{self.img.params[i]}\t\t{self.p0[i]}\t{self.img.p_ranges[i]}')
 
+    def compute_rmax(self, compute_rmax_kwargs):
         # get rmax for these parameters
-        self.img.compute_rmax(p0, zero_node=True, automask=True, **compute_rmax_kwargs)
+        self.img.compute_rmax(self.p0, zero_node=True, automask=True, **compute_rmax_kwargs)
 
-    def plot_model(self, pin=None):
-        if pin is None:
+    def plot_model(self, par=None):
+        if par is None:
             p = self.p0
         else:
-            p = pin
+            p = par
         fig, ax = plt.subplots()
         img = self.img.image_galario(p[3:-1])
         ax.imshow(img[self.img.cc_gal], origin='lower')
@@ -203,11 +238,19 @@ class Fit(object):
 
         # galario
         chi2 = 0
-        img = self.img.image_galario(p[3:-1])
-        for i in range(len(self.ms_files)):
-            chi2 += gd.chi2Image(img * self.img.pb_galario[i],
-                                 self.dxy, self.u[i], self.v[i], self.re[i], self.im[i], self.w[i],
-                                 dRA=p[0]*arcsec, dDec=p[1]*arcsec, PA=np.deg2rad(p[2]), origin='lower')
+        if self.img.dens_model == 'peri_glow':
+            img = ii.image(p[:-1])
+            for i in range(len(self.ms_files)):
+                chi2 += gd.chi2Image(img * self.img.pb_galario[i],
+                                     self.dxy, self.u[i], self.v[i], self.re[i], self.im[i], self.w[i],
+                                     origin='lower')
+        else:
+            img = self.img.image_galario(p[3:-1])
+            for i in range(len(self.ms_files)):
+                chi2 += gd.chi2Image(img * self.img.pb_galario[i],
+                                     self.dxy, self.u[i], self.v[i], self.re[i], self.im[i], self.w[i],
+                                     dRA=p[0]*arcsec, dDec=p[1]*arcsec, PA=np.deg2rad(p[2]), origin='lower')
+
         prob = -0.5 * (chi2*p[-1] + np.sum(2*np.log(2*np.pi/(np.hstack(self.w)*p[-1]))))
 
         if np.isnan(prob):
@@ -233,86 +276,141 @@ class Fit(object):
         print('Best parameters: {}'.format(res['x']))
         self.p0 = np.array(res['x'])
 
-    def mcmc(self, nwalk=None, nsteps=10, nthreads=None, burn=5,
-             out_dir='.', restart=False):
+    def init_mcmc(self, nwalkers=None, reset=False):
+
+        self.backend = emcee.backends.HDFBackend(self.savefile)
+
+        if nwalkers is not None:
+            self.nwalkers = nwalkers
+
+        if os.path.exists(self.savefile):
+            if nwalkers is None:
+                self.nwalkers = self.backend.shape[0]
+            if self.backend.shape[0] != self.nwalkers:
+                reset = True
+            if self.backend.iteration > 0:
+                ndim = self.backend.shape[1]
+                if self.backend.shape[0] > self.nwalkers:
+                    self.mcmc_p0 = self.backend.get_chain()[-1, :self.nwalkers, :]
+                elif self.backend.shape[0] < self.nwalkers:
+                    self.mcmc_p0 = self.backend.get_chain()[-1, np.random.randint(0, self.backend.shape[0], size=self.nwalkers), :]
+                else:
+                    self.mcmc_p0 = self.backend.get_chain()[-1, :, :]
+
+                self.p0 = np.median(self.mcmc_p0, axis=0)
+
+        if not hasattr(self, 'mcmc_p0'):
+            ndim = len(self.p0)
+            self.mcmc_p0 = np.array([self.p0 + self.p0*0.01*np.random.randn(ndim) for i in range(self.nwalkers)])
+            reset = True
+
+        if reset:
+            self.backend.reset(self.nwalkers, len(self.p0))
+
+    def mcmc(self, nsteps=10, nthreads=None):
         """Do the mcmc.
         
         Parameters
         ----------
-        nwalk : int
-            Number of walkers.
         nsteps : int
             Number of mcmc steps.
         nthreads : int
             Number of threads.
-        burn : int
-            Number of steps to count as burn in.
-        out_dir : str
-            Where to put results.
         """
 
-        if nwalk is None:
-            nwalk = self.img.n_params * 2
+        if self.nwalkers is None:
+            self.nwalkers = self.img.n_params * 2
 
         with mp.Pool(processes=nthreads) as pool:
-            sampler = emcee.EnsembleSampler(nwalk, self.img.n_params,
-                                            self.lnprob, pool=pool)
-            if self.emcee_pos is None or restart:
-                self.emcee_pos = [self.p0 + self.p0*0.1*np.random.randn(self.img.n_params) for i in range(nwalk)]
-            self.emcee_pos, prob, state = sampler.run_mcmc(self.emcee_pos, nsteps, progress=True)
+            sampler = emcee.EnsembleSampler(self.nwalkers, self.img.n_params,
+                                            self.lnprob, pool=pool, backend=self.backend)
 
-        model_name = self.img.Dens.model
+            self.mcmc_p0, prob, state = sampler.run_mcmc(self.mcmc_p0, nsteps, progress=True)
+
+    def mcmc_plots(self, out_dir=None, savefile=None, post_burn=50):
+
+        if savefile is not None:
+            self.backend = emcee.backends.HDFBackend(savefile)
+        else:
+            if self.backend.iteration == 0:
+                print('no data to plot')
+                return
+
+        if out_dir is None:
+            if self.out_dir is not None:
+                out_dir = self.out_dir
+            elif self.backend is None:
+                out_dir = os.path.abspath(os.path.dirname(self.savefile))
+            else:
+                print('nowhere to put plots')
+                return
+
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
 
-        # save the chains to file
-        np.savez_compressed(out_dir+'/chains-'+model_name+'.npz',
-                            sampler.chain, sampler.lnprobability)
-
         # see what the chains look like, skip a burn in period if desired
+        burn = self.backend.iteration - post_burn
         fig,ax = plt.subplots(self.img.n_params+1,2,
                               figsize=(9.5,5), sharex='col', sharey=False)
 
-        for j in range(nwalk):
-            ax[-1,0].plot(sampler.lnprobability[j, :burn])
+        for j in range(self.backend.shape[1]):
+            ax[-1,0].plot(self.backend.get_log_prob()[:burn, j])
             for i in range(self.img.n_params):
-                ax[i, 0].plot(sampler.chain[j, :burn, i])
+                ax[i, 0].plot(self.backend.get_chain()[:burn, j, i])
                 ax[i, 0].set_ylabel(self.img.params[i])
 
-        for j in range(nwalk):
-            ax[-1, 1].plot(sampler.lnprobability[j, burn:])
+        for j in range(self.backend.shape[0]):
+            ax[-1, 1].plot(self.backend.get_log_prob()[burn:, j])
             for i in range(self.img.n_params):
-                ax[i, 1].plot(sampler.chain[j, burn:, i])
+                ax[i, 1].plot(self.backend.get_chain()[burn:, j, i])
                 ax[i, 1].set_ylabel(self.img.params[i])
 
         ax[-1, 0].set_xlabel('burn in')
         ax[-1, 1].set_xlabel('sampling')
-        fig.savefig(out_dir+'/chains-'+model_name+'.png')
+        fig.savefig(out_dir+'/chains.png')
 
         # make the corner plot
-        fig = corner.corner(sampler.chain[:, burn:, :].reshape((-1, self.img.n_params)),
+        fig = corner.corner(self.backend.get_chain()[burn:, :, :].reshape((-1, self.img.n_params)),
                             labels=self.img.params, show_titles=True)
 
-        fig.savefig(out_dir+'/corner-'+model_name+'.png')
+        fig.savefig(out_dir+'/corner.png')
 
+    def mcmc_medians(self):
         # get the median parameters
-        self.p = np.median(sampler.chain[:, burn:, :].reshape((-1, self.img.n_params)),
+        self.mcmc_p = np.median(self.backend.get_chain()[burn:, :, :].reshape((-1, self.img.n_params)),
                            axis=0)
-        self.s = np.std(sampler.chain[:, burn:, :].reshape((-1, self.img.n_params)),
+        self.mcmc_std = np.std(self.backend.get_chain()[burn:, :, :].reshape((-1, self.img.n_params)),
                         axis=0)
-        print('best fit parameters: {}'.format(self.p))
+        print('best fit parameters: {}'.format(self.mcmc_p))
+
+    def save_model_vis(self, out_dir=None):
+        if out_dir is None:
+            if self.out_dir is not None:
+                out_dir = self.out_dir
+            elif self.backend is None:
+                out_dir = os.path.abspath(os.path.dirname(self.savefile))
+            else:
+                print('nowhere to put plots')
+                return
 
         # create a copy and recompute the limits to get a full rotated image
         img = copy.deepcopy(self.img)
-        img.compute_rmax(self.p)
+        img.compute_rmax(self.mcmc_p)
         fig, ax = plt.subplots()
-        ax.imshow(img.image(self.p)[img.cc], origin='lower')
-        fig.savefig(out_dir+'/best-'+model_name+'.png')
+        ax.imshow(img.image(self.mcmc_p)[img.cc], origin='lower')
+        fig.savefig(out_dir+'/best.png')
 
         # save the visibilities for subtraction from the data
-        vis_mod = gd.sampleImage(self.img.pb_galario * self.img.image_galario(self.p[3:]),
-                                 self.dxy, self.u, self.v,
-                                 dRA=self.p[0]*arcsec, dDec=self.p[1]*arcsec,
-                                 PA=np.deg2rad(self.p[2]))
-        np.save(out_dir+'/vis-'+model_name+'.npy', vis_mod)
+        for i in range(len(self.ms_files)):
+            if self.img.dens_model == 'peri_glow':
+                img = ii.image(self.mcmc_p[:-1])
+                vis_mod = gd.sampleImage(img, self.dxy, self.u[i], self.v[i], origin='lower')
+            else:
+                img = ii.pb_galario[i] * ii.image_galario(self.mcmc_p[3:-1])
+                vis_mod = gd.sampleImage(img, self.dxy, self.u[i], self.v[i],
+                                         dRA=self.mcmc_p[0]*arcsec, dDec=self.mcmc_p[1]*arcsec,
+                                         PA=np.deg2rad(self.mcmc_p[2]),
+                                         origin='lower')
 
+            np.save(f'{out_dir}/{os.path.splitext(os.path.basename(self.ms_files[i]))[0]}-mod.npy',
+                    vis_mod)
