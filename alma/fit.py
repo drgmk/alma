@@ -14,6 +14,52 @@ from . import image
 
 gd.threads(num=1)
 
+# some globals that attempt to speed things up
+u, v, re, im, w = [], [], [], [], []
+
+
+def lnprior(p):
+    """Priors.
+
+    Intended to be set to an externally defined function
+    that takes p and returns log prior.
+    """
+    return 0
+
+
+def lnprob(p, dxy, ii):
+    """Log of posterior probability function."""
+
+    for x, r in zip(p, ii.p_ranges):
+        if x < r[0] or x > r[1]:
+            return -np.inf
+
+    # galario
+    chi2 = 0
+    if ii.dens_model == 'peri_glow':
+        img = ii.image(p[:-1])
+        for i in range(len(u)):
+            chi2 += gd.chi2Image(img * ii.pb_galario[i],
+                                 dxy, u[i], v[i], re[i], im[i], w[i],
+                                 origin='lower')
+    else:
+        img = ii.image_galario(p[3:-1])
+        for i in range(len(u)):
+            chi2 += gd.chi2Image(img * ii.pb_galario[i],
+                                 dxy, u[i], v[i], re[i], im[i], w[i],
+                                 dRA=p[0]*arcsec, dDec=p[1]*arcsec, PA=np.deg2rad(p[2]), origin='lower')
+
+    prob = -0.5 * (chi2*p[-1] + np.sum(2*np.log(2*np.pi/(np.hstack(w)*p[-1]))))
+
+    if np.isnan(prob):
+        print(f'nan lnprob for parameters: {p}')
+
+    return prob + lnprior(p)
+
+
+nlnprob = lambda p, dxy, ii: -lnprob(p, dxy, ii)
+
+
 class Fit(object):
     """Class for fitting and automation."""
 
@@ -72,6 +118,9 @@ class Fit(object):
             self.ms_files.append(ms_file_)
             wavelength.append(wavelength_)
 
+        global u, v, re, im, w
+        u, v, re, im, w = self.u, self.v, self.re, self.im, self.w
+
         self.wavelength = np.mean(wavelength)
         self.get_ant_diams(self.ms_files)
         self.get_pix_scale(img_sz_kwargs)
@@ -109,6 +158,9 @@ class Fit(object):
             if save_files is not None:
                 np.save(save_files[i], np.array([u_, v_, vis_.real, vis_.imag, w_,
                                                 wavelength_, f], dtype=object))
+
+        global u, v, re, im, w
+        u, v, re, im, w = self.u, self.v, self.re, self.im, self.w
 
         self.wavelength = np.mean(wavelength)
         self.get_ant_diams(self.ms_files)
@@ -219,49 +271,6 @@ class Fit(object):
         fig.tight_layout()
         # fig.show()
 
-    def lnprior(self, p):
-        """Priors.
-
-        Intended to be set to an externally defined function
-        that takes p and returns log prior.
-        """
-        return 0
-
-    def lnprob(self, p):
-        """Log of posterior probability function."""
-
-        # global u, v, re, im, w
-
-        for x, r in zip(p, self.img.p_ranges):
-            if x < r[0] or x > r[1]:
-                return -np.inf
-
-        # galario
-        chi2 = 0
-        if self.img.dens_model == 'peri_glow':
-            img = ii.image(p[:-1])
-            for i in range(len(self.ms_files)):
-                chi2 += gd.chi2Image(img * self.img.pb_galario[i],
-                                     self.dxy, self.u[i], self.v[i], self.re[i], self.im[i], self.w[i],
-                                     origin='lower')
-        else:
-            img = self.img.image_galario(p[3:-1])
-            for i in range(len(self.ms_files)):
-                chi2 += gd.chi2Image(img * self.img.pb_galario[i],
-                                     self.dxy, self.u[i], self.v[i], self.re[i], self.im[i], self.w[i],
-                                     dRA=p[0]*arcsec, dDec=p[1]*arcsec, PA=np.deg2rad(p[2]), origin='lower')
-
-        prob = -0.5 * (chi2*p[-1] + np.sum(2*np.log(2*np.pi/(np.hstack(self.w)*p[-1]))))
-
-        if np.isnan(prob):
-            print(f'nan lnprob for parameters: {p}')
-
-        return prob + self.lnprior(p)
-
-    def nlnprob(self, p):
-        """Negative log probability, for minimising."""
-        return -self.lnprob(p)
-
     def optimise(self, niter=100):
         """Optimise parameters.
 
@@ -270,7 +279,7 @@ class Fit(object):
         niter : int
             Number of optimisation iterations.
         """
-        res = scipy.optimize.minimize(self.nlnprob, self.p0,
+        res = scipy.optimize.minimize(nlnprob, self.p0, args=(self.dxy, self.img),
                                       method='Nelder-Mead',
                                       options={'maxiter':niter})
         print('Best parameters: {}'.format(res['x']))
@@ -321,9 +330,9 @@ class Fit(object):
         if self.nwalkers is None:
             self.nwalkers = self.img.n_params * 2
 
-        with mp.Pool(processes=nthreads) as pool:
+        with mp.get_context('fork').Pool(processes=nthreads) as pool:
             sampler = emcee.EnsembleSampler(self.nwalkers, self.img.n_params,
-                                            self.lnprob, pool=pool, backend=self.backend)
+                                            lnprob, args=(self.dxy, self.img), pool=pool, backend=self.backend)
 
             self.mcmc_p0, prob, state = sampler.run_mcmc(self.mcmc_p0, nsteps, progress=True)
 
@@ -403,10 +412,10 @@ class Fit(object):
         # save the visibilities for subtraction from the data
         for i in range(len(self.ms_files)):
             if self.img.dens_model == 'peri_glow':
-                img = ii.image(self.mcmc_p[:-1])
+                img = self.img.image(self.mcmc_p[:-1])
                 vis_mod = gd.sampleImage(img, self.dxy, self.u[i], self.v[i], origin='lower')
             else:
-                img = ii.pb_galario[i] * ii.image_galario(self.mcmc_p[3:-1])
+                img = self.img.pb_galario[i] * self.img.image_galario(self.mcmc_p[3:-1])
                 vis_mod = gd.sampleImage(img, self.dxy, self.u[i], self.v[i],
                                          dRA=self.mcmc_p[0]*arcsec, dDec=self.mcmc_p[1]*arcsec,
                                          PA=np.deg2rad(self.mcmc_p[2]),
