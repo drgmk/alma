@@ -53,10 +53,10 @@ def residual_standalone(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
     nchan = data.shape[1]
     nrow = data.shape[2]
     print(f'Opened ms file with {nchan} channels, {nrow} rows')
-    print(f'  some ({np.sum(flags)}={np.sum(np.any(f, axis=(0, 1)))//nchan} rows) data are flagged')
+    print(f'  some ({np.sum(flags)}={np.sum(np.any(flags, axis=(0, 1)))//nchan} rows) data are flagged')
 
     # some rows will have been flagged
-    flagrow = np.sum(np.any(f, axis=(0, 1)))//nchan
+    flagrow = np.sum(np.any(flags, axis=(0, 1)))//nchan
     nrow -= flagrow
 
     # open the model visibilities, which is a vector nchan x nrow long
@@ -70,17 +70,17 @@ def residual_standalone(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
     flags2d = np.logical_or(flags[0, :, :], flags[1, :, :])
     flags2d = np.array([flags2d, flags2d])
     vis_mod = np.array([vis_mod, vis_mod])
-    sub = data
+    sub = data.copy()
     sub[np.logical_not(flags2d)] = data[np.logical_not(flags2d)] - vis_mod.flatten()
-    sub.reshape(2, nchan, nrow+flagrow)
+    sub = sub.reshape(2, nchan, nrow+flagrow)
 
     # put the data back in the table and close
     tb.putcol(datacolumn, sub)
     tb.close()
 
 
-def residual(ms, vis_mod, datacolumn='DATA',
-             ms_new='residual.ms', remove_new=True):
+def residual(ms, vis_model, datacolumn='DATA',
+             ms_new=None, remove_new=True):
     """Create a new ms with the model subtracted.
 
     Parameters
@@ -100,6 +100,8 @@ def residual(ms, vis_mod, datacolumn='DATA',
     """
 
     # copy ms to a new ms that we will modify
+    if ms_new is None:
+        ms_new = vis_model.replace('.npy', '-residual.ms')
     if os.path.exists(ms_new):
         if remove_new:
             os.system('rm -r '+ms_new)
@@ -116,11 +118,12 @@ def residual(ms, vis_mod, datacolumn='DATA',
     flags = tb.getcol('FLAG')
     nchan = data.shape[1]
     nrow = data.shape[2]
-    print(f'Opened ms file with {nchan} channels, {nrow} rows')
-    print(f'  some ({np.sum(flags)}={np.sum(np.any(f, axis=(0, 1)))//nchan} rows) data are flagged')
+    print(f'Opened ms file with {nchan} channels, {nrow} rows (shape:{data.shape})')
+    if np.sum(flags) > 0:
+        print(f'  some ({np.sum(flags)}={np.sum(np.any(flags, axis=(0, 1)))//nchan} rows) data are flagged')
 
-    # some rows will have been flagged
-    flagrow = np.sum(np.any(f, axis=(0, 1)))//nchan
+    # some rows may have been flagged
+    flagrow = np.sum(np.any(flags, axis=(0, 1)))//nchan
     nrow -= flagrow
 
     # open the model visibilities, which is a vector nchan x nrow long
@@ -134,9 +137,9 @@ def residual(ms, vis_mod, datacolumn='DATA',
     flags2d = np.logical_or(flags[0, :, :], flags[1, :, :])
     flags2d = np.array([flags2d, flags2d])
     vis_mod = np.array([vis_mod, vis_mod])
-    sub = data
+    sub = data.copy()
     sub[np.logical_not(flags2d)] = data[np.logical_not(flags2d)] - vis_mod.flatten()
-    sub.reshape(2, nchan, nrow+flagrow)
+    sub = sub.reshape(2, nchan, nrow+flagrow)
 
     # put the data back in the table and close
     tb.putcol(datacolumn, sub)
@@ -379,7 +382,7 @@ def export_ms(msfile, tb, ms, outfile='uv.npy', timescan=False):
         np.save(outputfilename, [u, v, Re, Im, w])
 
 
-def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True):
+def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True, sort=False):
     """Direct copy of Luca Matra's export.
     https://github.com/dlmatra/miao
     """
@@ -508,13 +511,14 @@ def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True):
     vis = data_real + 1j*data_imag
 
     # sort into time order
-    srt = np.argsort(time)
-    data_uu = data_uu[srt]
-    data_vv = data_vv[srt]
-    vis = vis[srt]
-    data_wgts = data_wgts[srt]
-    time = time[srt]
-    spws = spws[srt]
+    if sort:
+        srt = np.argsort(time)
+        data_uu = data_uu[srt]
+        data_vv = data_vv[srt]
+        vis = vis[srt]
+        data_wgts = data_wgts[srt]
+        time = time[srt]
+        spws = spws[srt]
 
     # re-weighting as suggested by Loomis+
     if reweight:
