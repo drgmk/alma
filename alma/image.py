@@ -7,15 +7,16 @@ import scipy.interpolate
 from . import cube
 
 # try using tensorflow to speed up images
-try:
-    import tensorflow as tf
-    from . import image_tf
-    TF = True
-    print('WARNING: using experimental tensorflow image_tf.py',
-          'check density/emit functions are the same')
-except ImportError:
-    TF = False
-
+# this has problems with emcee
+# try:
+#     import tensorflow as tf
+#     from . import image_tf
+#     TF = True
+#     print('WARNING: using experimental tensorflow image_tf.py',
+#           'check density/emit functions are the same')
+# except ImportError:
+#     TF = False
+TF = False
 
 def rotate_zxz(z1, x, z2):
     """Return a rotation matrix.

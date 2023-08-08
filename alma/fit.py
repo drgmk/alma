@@ -72,7 +72,7 @@ class Fit(object):
             Measurement set(s) with visibilities.
         """
         self.backend = None
-        self.mcmc_savename = 'mcmc.h5'
+        self.mcmc_savename = 'vismod.h5'
 
     def set_outdir(self, outdir):
         if not os.path.exists(outdir):
