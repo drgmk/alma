@@ -769,9 +769,36 @@ class Image(object):
                                 print('radial r_max: {} pix at {},{}'.\
                                       format(r,p[0]/self.arcsec_pix,
                                              p[1]/self.arcsec_pix))
-                            return None
+                            return r
     
-        find_radial()
+        r = find_radial()
+
+        # go layer by layer to get limits when very high res
+        if r > 200:
+            if self.verbose:
+                print('high resolution, preliminary rmax by layer')
+            xmax, ymax, zmax = 0, 0, 0
+            for i in np.arange(self.crop_size[0]):
+                layer = self.image_cutout(p_, cube=False, layer=i)
+                if np.max(layer) > tol:
+                    xmax_ = np.abs(self.x[i])
+                    if xmax_ > xmax:
+                        xmax = xmax_
+                    y_sum = np.sum(layer, axis=1)
+                    ymax_ = np.max(  np.abs( np.where( y_sum/np.max(y_sum) > tol )[0] \
+                                        - len(y_sum)//2 ) )
+                    if ymax_ > ymax:
+                        ymax = ymax_
+                    z_sum = np.sum(layer, axis=0)
+                    zmax_ = np.max(  np.abs( np.where( z_sum/np.max(z_sum) > tol )[0] \
+                                             - len(z_sum)//2 ) )
+                    if zmax_ > zmax:
+                        zmax = zmax_
+
+            if self.verbose:
+                print('  initial x,y,z extent {}, {}, {}'.format(xmax, ymax, zmax))
+            rmax = ( np.array([xmax, ymax, zmax]) + expand ).astype(int)
+            self.set_rmax(rmax, x0=p[0], y0=p[1])
 
         # get centered cutout cube of disk and compute limits from that
         if not radial_only:
@@ -998,7 +1025,7 @@ class Image(object):
         self.pb_galario = self.primary_beam_image(-x0, -y0)
     
 
-    def los_image_cutout_(self, p, cube=False):
+    def los_image_cutout_(self, p, cube=False, layer=None):
         """Return a cutout image of a disk.
 
         This is ultimately based on the zodipic code.
@@ -1074,10 +1101,7 @@ class Image(object):
             # attempts to speed this up using multiprocess.Pool failed
             else:
 
-                image = np.zeros((self.crop_size[1],self.crop_size[0]))
-
-                for i in np.arange(self.crop_size[0]):
-
+                def get_layer(i):
                     x = self.x[i] - x0 / self.arcsec_pix
 
                     # x,y,z locations in original model coords
@@ -1087,6 +1111,7 @@ class Image(object):
                         y3 = c0c1s2_s0c2*x + trans2[ind]
                         z3 = -c0s1*x + trans3[ind]
                     else:
+                        ind = None
                         x3 = c0c1c2_s0s2*x + trans1
                         y3 = c0c1s2_s0c2*x + trans2
                         z3 = -c0s1*x + trans3
@@ -1108,6 +1133,15 @@ class Image(object):
                                       p[slice(6+self.n_emit_params,
                                               6+self.n_emit_params+self.n_dens_params)]
                                       )
+                    return layer, ind
+
+                if layer:
+                    lay, _ = get_layer(layer)
+                    return lay
+
+                image = np.zeros((self.crop_size[1],self.crop_size[0]))
+                for i in np.arange(self.crop_size[0]):
+                    layer, ind = get_layer(i)
 
                     # put this in the image
                     if self.mask is not None:
@@ -1130,7 +1164,7 @@ class Image(object):
         return image
                       
 
-    def los_image_cutout(self, p, cube=False):
+    def los_image_cutout(self, p, cube=False, layer=None):
         """Version of los_image_cutout_.
             
         All calls come through here so this is the only routine where
@@ -1138,11 +1172,11 @@ class Image(object):
         """
         return self.los_image_cutout_(np.append([p[0]-self.x0_arcsec,
                                                 p[1]-self.y0_arcsec],
-                                               p[2:]), cube=cube)
+                                               p[2:]), cube=cube, layer=layer)
 
-    def los_image_cutout_axisym(self, p, cube=False):
+    def los_image_cutout_axisym(self, p, cube=False, layer=None):
         return self.los_image_cutout(np.append(p[:3],np.append(0.0,p[3:])),
-                                               cube=cube)
+                                               cube=cube, layer=layer)
 
     los_image_params = ['$x_0$','$y_0$','$\Omega$','$\omega$','$i$','$F$']
     los_image_p_ranges = [[-np.inf,np.inf], [-np.inf,np.inf], [-270,270],
