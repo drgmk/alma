@@ -1063,8 +1063,11 @@ class Image(object):
 
                 # the density, dimensions are y, z, x -> y, x, z
                 cube_ = self.emit(r,p[slice(6,6+self.n_emit_params)],
-                                 wavelength=self.wavelength) * \
-                       self.dens(r,az,el,p[6+self.n_emit_params:])
+                                  wavelength=self.wavelength) * \
+                        self.dens(r,az,el,
+                                  p[slice(6+self.n_emit_params,
+                                          6+self.n_emit_params+self.n_dens_params)]
+                                  )
                 return tot * np.rollaxis(cube_, 2, 1) / np.sum(cube_)
 
             # go through slice by slice and get the flux along an x column
