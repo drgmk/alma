@@ -80,7 +80,7 @@ def residual_standalone(ms, vis_model, tb, datacolumn='CORRECTED_DATA',
 
 
 def residual(ms, vis_model, datacolumn='DATA',
-             ms_new=None, remove_new=True):
+             ms_new=None, remove_new=True, model=False):
     """Create a new ms with the model subtracted.
 
     Parameters
@@ -97,6 +97,8 @@ def residual(ms, vis_model, datacolumn='DATA',
         ms file to create and put residual data in.
     remove_new : bool, optional
         Remove ms_new before proceeding.
+    model : bool, optional
+        Create ms with only model (no subtraction).
     """
 
     # copy ms to a new ms that we will modify
@@ -138,7 +140,11 @@ def residual(ms, vis_model, datacolumn='DATA',
     flags2d = np.array([flags2d, flags2d])
     vis_mod = np.array([vis_mod, vis_mod])
     sub = data.copy()
-    sub[np.logical_not(flags2d)] = data[np.logical_not(flags2d)] - vis_mod.flatten()
+    if model:
+        sub = np.zeros_like(data)
+        sub[np.logical_not(flags2d)] = vis_mod.flatten()
+    else:
+        sub[np.logical_not(flags2d)] = data[np.logical_not(flags2d)] - vis_mod.flatten()
     sub = sub.reshape(2, nchan, nrow+flagrow)
 
     # put the data back in the table and close
@@ -455,8 +461,6 @@ def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True, sort=False):
         Re_yy = data[1,:,:].real
         Im_yy = data[1,:,:].imag
         weight_yy = weight[1,:]
-        weight_xx = np.tile(weight_xx, nchan).reshape(nchan, -1)
-        weight_yy = np.tile(weight_yy, nchan).reshape(nchan, -1)
 
         # Since we don't care about polarization, combine polarization states
         # (average them together) and fix the weights accordingly. Also if any
@@ -490,10 +494,10 @@ def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True, sort=False):
     data_real = Re[:, xc]
     data_imag = Im[:, xc]
     flags = flags[:, xc]
-    data_wgts = wgts[:, xc]
+    # data_wgts = wgts[xc]
     data_uu = uu[:, xc]
     data_vv = vv[:, xc]
-    # data_wgts = np.reshape(np.repeat(wgts[xc], uu.shape[0]), data_uu.shape)
+    data_wgts = np.reshape(np.repeat(wgts[xc], uu.shape[0]), data_uu.shape)
     time = np.tile(time, data_uu.shape[0]).reshape(data_uu.shape[0], -1)
     spws = np.tile(spws, data_uu.shape[0]).reshape(data_uu.shape[0], -1)
 
