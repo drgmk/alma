@@ -10,6 +10,9 @@ setup(
     license='MIT',
     packages=['alma'],
     classifiers=['Programming Language :: Python :: 3'],
-    install_requires = ['numpy'],
-    zip_safe=False
-    )
+    install_requires=['numpy'],
+    zip_safe=False,
+    entry_points={
+        'console_scripts': ['almastan=alma.stan:alma_stan']
+    }
+)
