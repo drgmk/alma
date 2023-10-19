@@ -35,8 +35,8 @@ def test_image_primary_beam():
 
     d = alma.image.Image(arcsec_pix=1, image_size=(100,100),
                          wavelength=1e3)
-    assert(len(d.pb.shape)==2)
-    assert(len(d.pb_galario.shape)==2)
+    assert(len(d.pb[0].shape)==2)
+    assert(len(d.pb_galario[0].shape)==2)
 
 
 def test_image_dens_extra_par():
