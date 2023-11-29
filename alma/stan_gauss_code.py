@@ -16,7 +16,11 @@ functions {
 }
 """
 
-def data(bg=False, pt=False):
+def data(star=False, bg=False, pt=False):
+
+    star_str = ''
+    if star:
+        star_str = 'real star_0, star_mul;'
 
     bg_str = ''
     if bg:
@@ -44,6 +48,7 @@ data {{
     real dra_0, dra_mul, ddec_0, ddec_mul;
     real norm_mul, r_mul, dr_mul, zh_mul;
     vector[nr] norm_0, r_0, dr_0, zh_0;
+    {star_str}
     {bg_str}
     {pt_str}
 }}
@@ -59,11 +64,16 @@ transformed data {
 }
 """
 
-def parameters(bg=False, pt=False, inc_lim=False, r_lim=False, zh_lim=True, nbg_lim=True):
+def parameters(star=False, bg=False, pt=False, inc_lim=False, r_lim=False, dr_lim=False, zh_lim=True, nbg_lim=True):
     inc = '<lower=0, upper=inc_mul*pi()/2>' if inc_lim else ''
     r = '<lower=0>' if r_lim else ''
+    dr = '<lower=0>' if dr_lim else ''
     zh = '<lower=0>' if zh_lim else ''
     nbg = '<lower=0>' if nbg_lim else ''
+
+    star_str = '// no star'
+    if star:
+        star_str = 'real<lower=0> star;'
 
     bg_str = ''
     if bg:
@@ -86,14 +96,20 @@ parameters {{
     real pa;
     real{inc} inc;
     vector{r}[nr] r;
-    vector[nr] norm, dr;
+    vector[nr] norm;
+    vector{dr}[nr] dr;
     vector{zh}[nr] zh;
+    {star_str}
     {bg_str}
     {pt_str}
 }}
 """
 
-def transformed_parameters(bg=False, pt=False):
+def transformed_parameters(star=False, bg=False, pt=False):
+
+    star_str = '// no star'
+    if star:
+        star_str = 'real star_ = star/star_mul;'
 
     bg_str = ''
     if bg:
@@ -124,12 +140,17 @@ transformed parameters {{
     vector[nr] r_ = r/r_mul;
     vector[nr] dr_ = dr/dr_mul;
     vector[nr] zh_ = zh/zh_mul;
+    {star_str}
     {bg_str}
     {pt_str}
 }}
 """
 
-def model_core(bg=False, pt=False):
+def model_core(star=False, bg=False, pt=False):
+
+    star_str = 'mod'
+    if star:
+        star_str = '(mod + star_)'
 
     bg_str = ''
     if bg:
@@ -190,7 +211,7 @@ def model_core(bg=False, pt=False):
         
         profile("translate"){{
             ruv = u_*dra_ + v_*ddec_;
-            vismod_re = mod .* cos(ruv);
+            vismod_re = {star_str} .* cos(ruv);
             vismod_im = mod .* sin(ruv);
         }}
         
@@ -202,7 +223,15 @@ def model_core(bg=False, pt=False):
 
 """
 
-def model_lnprob(bg=False, pt=False):
+def model_lnprob(star=False, bg=False, pt=False, z_prior=None):
+
+    zpr_str = 5
+    if z_prior is not None:
+        zpr_str = z_prior
+
+    star_str = '// no star'
+    if star:
+        star_str = 'target += normal_lpdf(star | star_0, 5);'
 
     bg_str = ''
     if bg:
@@ -228,11 +257,12 @@ def model_lnprob(bg=False, pt=False):
     target += normal_lpdf(norm | norm_0, 5);
     target += normal_lpdf(r | r_0, 5);
     target += normal_lpdf(abs(dr) | dr_0, 5);
-    target += normal_lpdf(abs(zh) | zh_0, 5);
+    target += normal_lpdf(abs(zh) | zh_0, {zpr_str});
     target += normal_lpdf(pa | pa_0, 5);
     target += normal_lpdf(inc | inc_0, 5);
     target += normal_lpdf(dra | dra_0, 5);
     target += normal_lpdf(ddec | ddec_0, 5);
+    {star_str}
     {bg_str}
     {pt_str}
     // log probability
@@ -244,19 +274,21 @@ def model_lnprob(bg=False, pt=False):
 """
 
 
-def get_code(bg=False, pt=False, gq=False, r_lim=False, inc_lim=False):
+def get_code(star=False, bg=False, pt=False, gq=False,
+             r_lim=False, dr_lim=False, inc_lim=False, z_prior=None):
 
-    model = "model {\n" + model_core(bg=bg, pt=pt) + model_lnprob(bg=bg, pt=pt)
+    model = "model {\n" + model_core(star=star, bg=bg, pt=pt) + \
+            model_lnprob(star=star, bg=bg, pt=pt, z_prior=z_prior)
 
-    generated_quantities = "generated quantities {" + model_core(bg=bg, pt=pt) + "\n}"
+    generated_quantities = "generated quantities {" + model_core(star=star, bg=bg, pt=pt) + "\n}"
 
-    code = functions + data(bg=bg, pt=pt) + transformed_data + \
-           parameters(bg=bg, pt=pt, inc_lim=inc_lim, r_lim=r_lim) + \
-           transformed_parameters(bg=bg, pt=pt) + model
+    code = functions + data(star=star, bg=bg, pt=pt) + transformed_data + \
+           parameters(star=star, bg=bg, pt=pt, inc_lim=inc_lim, r_lim=r_lim, dr_lim=dr_lim) + \
+           transformed_parameters(star=star, bg=bg, pt=pt)
     if gq:
-        return code+generated_quantities
+        return code + generated_quantities
     else:
-        return code
+        return code + model
 
 """
 // unused code

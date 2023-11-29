@@ -5,10 +5,11 @@ import pickle
 import numpy as np
 from scipy.stats import binned_statistic_2d
 from cmdstanpy import CmdStanModel
+import matplotlib.pyplot as plt
 import arviz as az
 import corner
 
-from . import alma_stan_code
+from . import stan_gauss_code
 
 '''
 Create M2 (arm-64) conda env with
@@ -18,7 +19,7 @@ Create M2 (arm-64) conda env with
 >conda env config vars set CONDA_SUBDIR=osx-arm64
 >conda deactivate
 >conda activate stan
->conda install -c conda-forge cmdstanpy corner
+>conda install -c conda-forge cmdstanpy corner cmdstan>=2.33.1
 
 Get alma package from github and install with pip
 
@@ -29,10 +30,10 @@ This runs ~3x faster than Intel Mac, and >10x faster than osx-64 on an M2.
 M2 Pro is nearly 2x faster again.
 '''
 
-def alma_stan():
+def alma_stan_gauss():
 
     # setup
-    parser = argparse.ArgumentParser(description='almastan')
+    parser = argparse.ArgumentParser(description='almastan (gaussian)')
     parser.add_argument('-v', dest='visfiles', metavar=('vis1.npy', 'vis2.npy'), nargs='+', required=True,
                         help='numpy save files (u, v, re, im, w, wav, filename)')
     parser.add_argument('-g', dest='g', type=float, nargs=4,
@@ -51,6 +52,8 @@ def alma_stan():
                         help='scaling for norm')
     parser.add_argument('--r-mul', dest='r_mul', metavar='r_mul', type=float, default=1,
                         help='scaling for radius')
+    parser.add_argument('--star', dest='star', metavar=('flux'),
+                        type=float, nargs=1, help='Point source at disk center')
     parser.add_argument('--bg', dest='bg', metavar=('x', 'y', 'f', 'r', 'pa', 'inc'), action='append',
                         type=float, nargs=6, help='resolved background source')
     parser.add_argument('--pt', dest='pt', metavar=('x', 'y', 'f'), action='append',
@@ -61,12 +64,16 @@ def alma_stan():
                         help="limit range of inclinations")
     parser.add_argument('--r-lim', dest='r_lim', action='store_true', default=False,
                         help="limit range of radii to be +ve")
+    parser.add_argument('--dr-lim', dest='dr_lim', action='store_true', default=False,
+                        help="limit range of widths to be +ve")
+    parser.add_argument('--z-lim', dest='zlim', metavar='zlim', type=float, default=None,
+                        help='1sigma upper limit on z/r')
     parser.add_argument('--rew', dest='reweight', action='store_true', default=False,
                         help="Reweight visibilities")
     parser.add_argument('--no-save', dest='save', action='store_false', default=True,
-                        help="Save model")
-    parser.add_argument('--no-hmc', dest='hmc', action='store_false', default=True,
-                        help="Don't run HMC")
+                        help="Don't save model")
+    parser.add_argument('--no-pf', dest='pf', action='store_false', default=True,
+                        help="Don't run pathfinder")
 
     args = parser.parse_args()
 
@@ -92,6 +99,9 @@ def alma_stan():
     else:
         inits['norm'], inits['r'], inits['dr'], inits['zh'] = 0.01, 1, 0.1, 0.05
 
+    if args.star:
+        inits['star'] = args.star[0]
+
     if args.bg:
         bg = np.array(args.bg)
         inits['bgx'] = bg[:, 0]
@@ -112,10 +122,12 @@ def alma_stan():
     mul = {}
     for p in list(inits.keys()):
         mul[p] = sc
-        if p in ['norm', 'bgn', 'ptn']:
+        if p in ['norm', 'bgn', 'ptn', 'star']:
             mul[p] *= args.norm_mul
         if p in ['bgpa', 'bgi']:
             mul[p] /= args.norm_mul
+        if p in ['zh'] and args.zlim:
+            mul[p] = 1.0
 
     if args.metric:
         with open(args.metric, 'rb') as f:
@@ -148,129 +160,143 @@ def alma_stan():
     else:
         data['npt'] = 0
 
-
     stanfile = f'/tmp/alma{str(np.random.randint(100_000))}.stan'
 
+    # load data
+    u_ = v_ = Re_ = Im_ = w_ = np.array([])
+    for i, f in enumerate(visfiles):
+        u, v, Re, Im, w, wavelength_, ms_file_ = np.load(f, allow_pickle=True)
+        print(f'loading: {f} with nvis:{len(u)}')
+
+        reweight_factor = 2 * len(w) / np.sum((Re**2.0 + Im**2.0) * w)
+        print(f' reweighting factor would be {reweight_factor}')
+        if args.reweight:
+            print(' applying reweighting')
+            w *= reweight_factor
+
+        u_ = np.append(u_, u)
+        v_ = np.append(v_, v)
+        w_ = np.append(w_, w)
+        Re_ = np.append(Re_, Re)
+        Im_ = np.append(Im_, Im)
+
+    if args.sz > 0:
+        # flip negative u if we are averaging
+        uneg = u_ < 0
+        u_ = np.abs(u_)
+        v_[uneg] = -v_[uneg]
+        Im_[uneg] *= -1
+
+        def get_duv(R=0.99, size_arcsec=8.84):
+            """Return u,v cell size."""
+            return 1/(size_arcsec/3600*np.pi/180) * np.sqrt(1/R**2 - 1)
+
+        binsz = get_duv(size_arcsec=args.sz)
+        print(f'uv bin: {binsz:.2f}')
+
+        bins = [int(np.max(np.abs(v_))/binsz), int(np.max(np.abs(u_))/binsz)*2]
+
+        u,  _, _, _ = binned_statistic_2d(u_, v_, u_*w_, statistic='sum', bins=bins)
+        v,  _, _, _ = binned_statistic_2d(u_, v_, v_*w_, statistic='sum', bins=bins)
+        Re, _, _, _ = binned_statistic_2d(u_, v_, Re_*w_, statistic='sum', bins=bins)
+        Im, _, _, _ = binned_statistic_2d(u_, v_, Im_*w_, statistic='sum', bins=bins)
+        w,  _, _, _ = binned_statistic_2d(u_, v_, w_, statistic='sum', bins=bins)
+
+        # keep non-empty cells
+        ok = w != 0
+        data['u'] = (u[ok] / w[ok]).flatten()
+        data['v'] = (v[ok] / w[ok]).flatten()
+        data['re'] = (Re[ok] / w[ok]).flatten()
+        data['im'] = (Im[ok] / w[ok]).flatten()
+        data['w'] = w[ok].flatten()
+
+    else:
+        data['u'] = u_
+        data['v'] = v_
+        data['re'] = Re_
+        data['im'] = Im_
+        data['w'] = w_
+
+    data['nvis'] = len(data['u'])
+    data['sigma'] = 1/np.sqrt(data['w'])
+
+    print(f"original nvis:{len(u_)}, fitting nvis:{data['nvis']}")
+
+    code = stan_gauss_code.get_code(bg=data['nbg'] > 0, pt=data['npt'] > 0,
+                                   star=args.star, gq=False,
+                                   inc_lim=args.inc_lim, r_lim=args.r_lim, dr_lim=args.dr_lim,
+                                   z_prior=args.zlim)
+    with open(stanfile, 'w') as f:
+        f.write(code)
+
+    model = CmdStanModel(stan_file=stanfile, cpp_options={'STAN_THREADS': 'TRUE'})
+
+    # print(model.exe_info())
+
+    # initial run with pathfinder
+    if args.pf:
+        pf = model.pathfinder(data=data, inits=inits,
+                              # show_console=True
+                              )
+
+        cn = pf.column_names
+        ok = ['_' in c and '__' not in c for c in cn]
+        fig = corner.corner(pf.draws()[:, ok],
+                            titles=np.array(pf.column_names)[ok], show_titles=True)
+        fig.savefig(f'{outdir}/corner_pf.pdf')
+
     # HMC sampling
-    if args.hmc:
-        u_ = v_ = Re_ = Im_ = w_ = np.array([])
-        for i, f in enumerate(visfiles):
-            u, v, Re, Im, w, wavelength_, ms_file_ = np.load(f, allow_pickle=True)
-            print(f'loading: {f} with nvis:{len(u)}')
+    fit = model.sample(data=data, chains=6,
+                       metric='dense',
+                       iter_warmup=1000, iter_sampling=300,
+                       inits=pf.create_inits(chains=6) if args.pf else inits,
+                       show_console=False,
+                       refresh=50)
 
-            reweight_factor = 2 * len(w) / np.sum((Re**2.0 + Im**2.0) * w)
-            print(f' reweighting factor would be {reweight_factor}')
-            if args.reweight:
-                print(' applying reweighting')
-                w *= reweight_factor
+    # fit.save_csvfiles(outdir)
+    # shutil.copy(fit.metadata.cmdstan_config['profile_file'], outdir)
+    with open(f'{outdir}/metric.pkl', 'wb') as f:
+        pickle.dump(fit.column_names, f)
+        pickle.dump(mul, f)
+        pickle.dump(fit.summary()['StdDev'], f)
+        pickle.dump(fit.metric, f)
 
-            u_ = np.append(u_, u)
-            v_ = np.append(v_, v)
-            w_ = np.append(w_, w)
-            Re_ = np.append(Re_, Re)
-            Im_ = np.append(Im_, Im)
+    df = fit.summary(percentiles=(5, 95))
+    print(df[df.index.str.contains('_') == False])
+    # print(df.filter(regex='[a-z]_', axis=0))
+    # print(fit.diagnose())
 
-        if args.sz > 0:
-            # flip negative u if we are averaging
-            uneg = u_ < 0
-            u_ = np.abs(u_)
-            v_[uneg] = -v_[uneg]
-            Im_[uneg] *= -1
+    xr = fit.draws_xr()
+    for k in inits.keys():
+        xr = xr.drop_vars(k)
 
-            def get_duv(R=0.99, size_arcsec=8.84):
-                """Return u,v cell size."""
-                return 1/(size_arcsec/3600*np.pi/180) * np.sqrt(1/R**2 - 1)
+    _ = az.plot_trace(xr)
+    fig = _.ravel()[0].figure
+    fig.tight_layout()
+    fig.savefig(f'{outdir}/trace.pdf')
 
-            binsz = get_duv(size_arcsec=args.sz)
-            print(f'uv bin: {binsz:.2f}')
+    best = {}
+    for k in fit.stan_variables().keys():
+        if '_' in k and '__' not in k:
+            best[k] = np.median(fit.stan_variable(k), axis=0)
+    print(f'best: {best}')
 
-            bins = [int(np.max(np.abs(v_))/binsz), int(np.max(np.abs(u_))/binsz)*2]
+    # comment if memory problems ("python killed")
+    fig = corner.corner(xr, show_titles=True)
+    fig.savefig(f'{outdir}/corner.pdf')
 
-            u,  _, _, _ = binned_statistic_2d(u_, v_, u_*w_, statistic='sum', bins=bins)
-            v,  _, _, _ = binned_statistic_2d(u_, v_, v_*w_, statistic='sum', bins=bins)
-            Re, _, _, _ = binned_statistic_2d(u_, v_, Re_*w_, statistic='sum', bins=bins)
-            Im, _, _, _ = binned_statistic_2d(u_, v_, Im_*w_, statistic='sum', bins=bins)
-            w,  _, _, _ = binned_statistic_2d(u_, v_, w_, statistic='sum', bins=bins)
-
-            # keep non-empty cells
-            ok = w != 0
-            data['u'] = (u[ok] / w[ok]).flatten()
-            data['v'] = (v[ok] / w[ok]).flatten()
-            data['re'] = (Re[ok] / w[ok]).flatten()
-            data['im'] = (Im[ok] / w[ok]).flatten()
-            data['w'] = w[ok].flatten()
-
-        else:
-            data['u'] = u_
-            data['v'] = v_
-            data['re'] = Re_
-            data['im'] = Im_
-            data['w'] = w_
-
-        data['nvis'] = len(data['u'])
-        data['sigma'] = 1/np.sqrt(data['w'])
-
-        print(f"original nvis:{len(u_)}, fitting nvis:{data['nvis']}")
-
-        code = alma_stan_code.get_code(bg=data['nbg'] > 0, pt=data['npt'] > 0,
-                                       gq=False, inc_lim=args.inc_lim, r_lim=args.r_lim)
-        with open(stanfile, 'w') as f:
-            f.write(code)
-
-        model = CmdStanModel(stan_file=stanfile, model_name='almastan',
-                             cpp_options={'STAN_THREADS': 'TRUE'})
-
-        # print(model.exe_info())
-
-        fit = model.sample(data=data, chains=6,
-                           metric='dense',
-                           iter_warmup=1000, iter_sampling=300,
-                           inits=inits,
-                           # save_profile=True,
-                           refresh=50)
-
-        # fit.save_csvfiles(outdir)
-        # shutil.copy(fit.metadata.cmdstan_config['profile_file'], outdir)
-        with open(f'{outdir}/metric.pkl', 'wb') as f:
-            pickle.dump(fit.column_names, f)
-            pickle.dump(mul, f)
-            pickle.dump(fit.summary()['StdDev'], f)
-            pickle.dump(fit.metric, f)
-
-        df = fit.summary(percentiles=(5, 95))
-        print(df[df.index.str.contains('_') == False])
-        # print(df.filter(regex='[a-z]_', axis=0))
-        # print(fit.diagnose())
-
-        xr = fit.draws_xr()
-        for k in inits.keys():
-            xr = xr.drop_vars(k)
-
-        _ = az.plot_trace(xr)
-        fig = _.ravel()[0].figure
-        fig.tight_layout()
-        fig.savefig(f'{outdir}/trace.pdf')
-
-        best = {}
-        for k in fit.stan_variables().keys():
-            if '_' in k and '__' not in k:
-                best[k] = np.median(fit.stan_variable(k), axis=0)
-        print(f'best: {best}')
-
-        # comment if memory problems ("python killed")
-        fig = corner.corner(xr, show_titles=True)
-        fig.savefig(f'{outdir}/corner.pdf')
-
+    plt.close('all')
 
     # save model
     if args.save:
-        code = alma_stan_code.get_code(bg=data['nbg'] > 0, pt=data['npt'] > 0,
-                                       gq=True, inc_lim=args.inc_lim, r_lim=args.r_lim)
+        code = stan_gauss_code.get_code(bg=data['nbg'] > 0, pt=data['npt'] > 0,
+                                        star=args.star, gq=True,
+                                        inc_lim=args.inc_lim, r_lim=args.r_lim, dr_lim=args.dr_lim,
+                                        z_prior=args.zlim)
         with open(stanfile, 'w') as f:
             f.write(code)
 
-        model = CmdStanModel(stan_file=stanfile, model_name='almastan',
-                             cpp_options={'STAN_THREADS': 'TRUE'})
+        model = CmdStanModel(stan_file=stanfile, cpp_options={'STAN_THREADS': 'TRUE'})
 
         for k in inits.keys():
             inits[k] = best[f'{k}_'] * mul[k]

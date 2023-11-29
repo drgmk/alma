@@ -13,6 +13,7 @@ setup(
     install_requires=['numpy'],
     zip_safe=False,
     entry_points={
-        'console_scripts': ['almastan=alma.stan:alma_stan']
+        'console_scripts': ['almastan=alma.stan_hankel:alma_stan_radial',
+                            'almastan_gauss=alma.stan_gauss:alma_stan_gauss']
     }
 )
