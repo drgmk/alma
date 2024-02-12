@@ -28,7 +28,7 @@ Create M2 (arm-64) conda env with
 >conda env config vars set CONDA_SUBDIR=osx-arm64
 >conda deactivate
 >conda activate stan
->conda install -c conda-forge cmdstanpy corner
+>conda install -c conda-forge cmdstanpy corner arviz
 >pip install frank
 
 Get alma package from github and install with pip
