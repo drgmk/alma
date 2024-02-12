@@ -388,9 +388,12 @@ def export_ms(msfile, tb, ms, outfile='uv.npy', timescan=False):
         np.save(outputfilename, [u, v, Re, Im, w])
 
 
-def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True, sort=False):
+def get_ms_vis(msfilename, save=None,
+               xcor=True, acor=False, reweight=True, sort=False):
     """Direct copy of Luca Matra's export.
     https://github.com/dlmatra/miao
+
+    Returns u, v, vis, w, msfilename
     """
 
     cc = 2.9979e10  # cm/s
@@ -539,5 +542,9 @@ def get_ms_vis(msfilename, xcor=True, acor=False, reweight=True, sort=False):
             print(f're-weighting spw {s}: mean:{wgt_mean}, std:{data_std}')
             print(f're-weighting spw {s} value (1dof): {rew}')
             data_wgts[ok] *= rew
+
+    if save:
+        np.save(save, np.array([data_uu, data_vv, vis.real, vis.imag, data_wgts,
+                               wave, msfilename], dtype=object))
 
     return data_uu, data_vv, vis, data_wgts, wave

@@ -165,7 +165,18 @@ def alma_stan_gauss():
     # load data
     u_ = v_ = Re_ = Im_ = w_ = np.array([])
     for i, f in enumerate(visfiles):
-        u, v, Re, Im, w, wavelength_, ms_file_ = np.load(f, allow_pickle=True)
+        if '.npy' in f:
+            # my format
+            u, v, Re, Im, w, wavelength_, ms_file_ = np.load(f, allow_pickle=True)
+        elif '.txt' in f:
+            # 3 comment lines, then u[m], v[m], Re, Im, w. Line 2 is wave in m
+            fh = open(f)
+            lines = fh.readlines()
+            wavelength_ = float(lines[1].strip().split(' ')[-1])
+            u, v, Re, Im, w = np.loadtxt(f, comments='#', unpack=True)
+            u /= wavelength_
+            v /= wavelength_
+
         print(f'loading: {f} with nvis:{len(u)}')
 
         reweight_factor = 2 * len(w) / np.sum((Re**2.0 + Im**2.0) * w)
@@ -230,13 +241,19 @@ def alma_stan_gauss():
         f.write(code)
 
     model = CmdStanModel(stan_file=stanfile, cpp_options={'STAN_THREADS': 'TRUE'})
+    # model = CmdStanModel(stan_file='/Users/grant/astro/projects/alma/alma/alma/alma_test.stan',
+    #                      cpp_options={'STAN_THREADS': 'TRUE'})
+    # for k in inits.keys():
+    #     inits[k] = np.zeros_like(inits[k])+0.001
 
     # print(model.exe_info())
 
-    # initial run with pathfinder
+    # initial run with pathfinder to estimate parameters and metric
+    metric = 'dense'
     if args.pf:
-        pf = model.pathfinder(data=data, inits=inits,
-                              # show_console=True
+        pf = model.pathfinder(data=data,
+                              inits=inits,
+                              show_console=False
                               )
 
         cn = pf.column_names
@@ -245,11 +262,23 @@ def alma_stan_gauss():
                             titles=np.array(pf.column_names)[ok], show_titles=True)
         fig.savefig(f'{outdir}/corner_pf.pdf')
 
+        ok = ['_' not in c for c in cn]
+        metric = {'inv_metric': np.cov(pf.draws()[:, ok].T)}
+
+        for k in inits.keys():
+            med = np.median(pf.stan_variable(f'{k}_'), axis=0)
+            std = np.std(pf.stan_variable(f'{k}_'), axis=0)
+            data[f'{k}_mul'] = 1 / np.mean(std)
+            inits[k] = med * data[f'{k}_mul']
+            data[f'{k}_0'] = inits[k]
+            # print(k, data[f'{k}_mul'], inits[k], (inits[k]/data[f'{k}_mul']))
+
+
     # HMC sampling
     fit = model.sample(data=data, chains=6,
-                       metric='dense',
+                       metric=metric,
                        iter_warmup=1000, iter_sampling=300,
-                       inits=pf.create_inits(chains=6) if args.pf else inits,
+                       inits=inits,
                        show_console=False,
                        refresh=50)
 
@@ -305,7 +334,18 @@ def alma_stan_gauss():
 
         for f in visfiles:
             print(f'saving model for {os.path.basename(f)}')
-            u, v, Re, Im, w, _, _ = np.load(f, allow_pickle=True)
+            if '.npy' in f:
+                # my format
+                u, v, Re, Im, w, _, _ = np.load(f, allow_pickle=True)
+            elif '.txt' in f:
+                # 3 comment lines, then u[m], v[m], Re, Im, w. Line 2 is wave in m
+                fh = open(f)
+                lines = fh.readlines()
+                wavelength_ = float(lines[1].strip().split(' ')[-1])
+                u, v, Re, Im, w = np.loadtxt(f, comments='#', unpack=True)
+                u /= wavelength_
+                v /= wavelength_
+
             data['nvis'] = len(u)
             data['u'] = u
             data['v'] = v

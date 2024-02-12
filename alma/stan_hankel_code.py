@@ -187,7 +187,7 @@ parameters {{
     real ddec;
     real{pa} pa;
     real{inc} inc;
-    {p_str};
+    {p_str}
     vector{zh}[nr] zh;
     {star_str}
     {bg_str}
