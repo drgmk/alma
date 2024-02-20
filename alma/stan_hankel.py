@@ -84,6 +84,8 @@ def alma_stan_radial():
                         help="Reweight visibilities")
     parser.add_argument('--no-save', dest='save', action='store_false', default=True,
                         help="Don't save model")
+    parser.add_argument('--save-chains', dest='save_chains', action='store_true', default=False,
+                        help="Export model chains as numpy")
     parser.add_argument('--no-pf', dest='pf', action='store_false', default=True,
                         help="Don't run pathfinder")
 
@@ -191,20 +193,36 @@ def alma_stan_radial():
         data['npt'] = len(pt)
 
     # load data
-    u_ = v_ = Re_ = Im_ = w_ = np.array([])
-    for i, f in enumerate(visfiles):
+    def read_vis(f):
         if '.npy' in f:
-            # my format
+            # my format, u/v already in wavelengths
             u, v, Re, Im, w, wavelength_, ms_file_ = np.load(f, allow_pickle=True)
         elif '.txt' in f:
-            # 3 comment lines, then u[m], v[m], Re, Im, w. Line 2 is wave in m
-            fh = open(f)
-            lines = fh.readlines()
-            wavelength_ = float(lines[1].strip().split(' ')[-1])
-            u, v, Re, Im, w = np.loadtxt(f, comments='#', unpack=True)
-            u /= wavelength_
-            v /= wavelength_
+            # 3 comment lines, line 2 is average wave in m
+            # then u[m], v[m], Re, Im, w (5 lines)
+            # or u[lambda], v[lambda], Re, Im, w, wavelength (6 lines)
+            tmp = np.loadtxt(f, comments='#')
+            if tmp.shape[1] == 5:
+                fh = open(f)
+                lines = fh.readlines()
+                wavelength_ = float(lines[1].strip().split(' ')[-1])
+                u, v, Re, Im, w = tmp.T
+                u /= wavelength_
+                v /= wavelength_
+            elif tmp.shape[1] == 6:
+                u, v, Re, Im, w, wavelength_ = tmp.T
+                # u /= wavelength_
+                # v /= wavelength_
+            else:
+                exit('text file has neither 5 nor 6 columns')
+        else:
+            exit('file type not txt or npy')
 
+        return u, v, Re, Im, w
+
+    u_ = v_ = Re_ = Im_ = w_ = np.array([])
+    for i, f in enumerate(visfiles):
+        u, v, Re, Im, w = read_vis(f)
         print(f'loading: {f} with nvis:{len(u)}')
 
         reweight_factor = 2 * len(w) / np.sum((Re**2.0 + Im**2.0) * w)
@@ -227,7 +245,7 @@ def alma_stan_radial():
         Im_[uneg] *= -1
 
         def get_duv(R=0.99, size_arcsec=8.84):
-            """Return u,v cell size."""
+            """Return u,v cell size, size_arcsec is how far from phase center a pt. src. will lose 1% flux."""
             return 1/(size_arcsec/3600*np.pi/180) * np.sqrt(1/R**2 - 1)
 
         binsz = get_duv(size_arcsec=args.sz)
@@ -264,10 +282,15 @@ def alma_stan_radial():
     arcsec = np.pi/180/3600
     uvmax = np.max(np.sqrt(data['u']**2 + data['v']**2))
     uvmin = np.min(np.sqrt(data['u']**2 + data['v']**2))
-    r_max = np.max(inits['r']/mul['r'] / np.cos(inits['inc']/mul['inc'])) * 2
+    # assume flux goes to zero at image edge, 8.84" for 1mm/12m
+    # this sets lowest frequency
+    r_max = 8.84
     if args.rmax:
         r_max = args.rmax
     i = 1
+    # now increase samples until we get to highest frequency
+    # could get this analytically from Fourier-Bessel series roots
+    # see between eq. 9 and 10 in Jennings et al. 2020
     while i < 50:
         nhpt = i * 100
         h = frank.hankel.DiscreteHankelTransform(r_max*arcsec, nhpt)
@@ -286,6 +309,7 @@ def alma_stan_radial():
     print(f'Hankel points: {nhpt}')
     if 2*Qnk[0] > uvmin:
         print(f' WARNING: minimum Q not much smaller than minimum u,v')
+        print(f'          potential problem for highly inclined disks')
     print(f' R_max:{r_max}')
     print(f' Q_min:{Qnk[0]}, uv_min:{uvmin}')
     print(f' Q_max:{Qnk[-1]}, uv_max:{uvmax}')
@@ -354,6 +378,9 @@ def alma_stan_radial():
     for k in inits.keys():
         xr = xr.drop_vars(k)
 
+    if args.save_chains:
+        np.save(f'{outdir}/chains.npy', xr.to_dataarray().as_numpy().squeeze())
+
     _ = az.plot_trace(xr)
     fig = _.ravel()[0].figure
     fig.tight_layout()
@@ -417,17 +444,7 @@ def alma_stan_radial():
 
         for f in visfiles:
             print(f'saving model for {os.path.basename(f)}')
-            if '.npy' in f:
-                # my format
-                u, v, Re, Im, w, _, _ = np.load(f, allow_pickle=True)
-            elif '.txt' in f:
-                # 3 comment lines, then u[m], v[m], Re, Im, w. Line 2 is wave in m
-                fh = open(f)
-                lines = fh.readlines()
-                wavelength_ = float(lines[1].strip().split(' ')[-1])
-                u, v, Re, Im, w = np.loadtxt(f, comments='#', unpack=True)
-                u /= wavelength_
-                v /= wavelength_
+            u, v, Re, Im, w = read_vis(f)
 
             data['nvis'] = len(u)
             data['u'] = u

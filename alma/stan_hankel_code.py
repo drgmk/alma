@@ -38,6 +38,9 @@ matrix radial(data vector r, array [] vector p) {{
 
     return f"""
 functions {{
+    // ideally this would be higher order (e.g. cubic), but this would require
+    // the derivative of our radial function, which would be a pain
+    // https://spinkney.github.io/helpful_stan_functions/group__d__interpolation.html
     array[] vector interp_1d_linear(array[] vector y, data array[] real x,
                                     array[] real x_out) {{
       int left = 1;
@@ -134,6 +137,8 @@ transformed data {
     // data, convert u,v to sky x,y
     vector[nvis] u_ = u * arcsec2pi;
     vector[nvis] v_ = v * arcsec2pi;
+    // add a baseline of zero, so we can interpolate inside the
+    // shortest point in the DHT. the shortest point is duplicated below
     vector[nhpt+1] Qnk_;
     Qnk_[1] = 0;
     for (i in 1:nhpt) {
