@@ -12,8 +12,4 @@ setup(
     classifiers=['Programming Language :: Python :: 3'],
     install_requires=['numpy', 'scipy'],
     zip_safe=False,
-    entry_points={
-        'console_scripts': ['almastan=alma.stan_hankel:alma_stan_radial',
-                            'almastan_gauss=alma.stan_gauss:alma_stan_gauss']
-    }
 )

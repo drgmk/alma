@@ -606,6 +606,7 @@ class Image(object):
         self.rad_pix = arcsec_pix / (3600*180/np.pi)
         self.wavelength = wavelength
         self.pb_diameter = pb_diameter
+        self.pb_fits = pb_fits
         self.z_fact = z_fact
         self.verbose = verbose
 
@@ -626,7 +627,7 @@ class Image(object):
         if self.wavelength is None and pb_fits is None:
             self.pb = None
             self.pb_galario = None
-        elif self:
+        else:
             self.set_primary_beam()
 
         # set r_max
@@ -994,8 +995,12 @@ class Image(object):
         xx,yy = np.meshgrid(x,y)
         r = np.sqrt(xx**2 + yy**2) * self.rad_pix
         pbs = []
-        for d in self.pb_diameter:
-            pbs.append(self.primary_beam_func(r, d))
+        if self.pb_fits is not None:
+            # assume we will have only one PB for empirical
+            pbs.append(self.primary_beam_func(r))
+        else:
+            for d in self.pb_diameter:
+                pbs.append(self.primary_beam_func(r, d))
 
         return pbs
 
@@ -1460,9 +1465,8 @@ def eccentric_ring_positions(a0, da, e_f0, i_f0, e_p0,
     z = r * np.sin(i) * np.sin(theta)
 
     # incline and rotate to observed position
-    y_tmp = y * np.cos(inc)
-    x_rot = x * np.cos(node+np.pi/2) - y_tmp * np.sin(node+np.pi/2)
-    y_rot = x * np.sin(node+np.pi/2) + y_tmp * np.cos(node+np.pi/2)
+    rm = rotate_zxz(0, np.rad2deg(inc), np.rad2deg(node+np.pi/2))
+    x_rot, y_rot, _ = np.matmul(rm, [x, y, z])
 
     return x, y, x_rot, y_rot, z
 
